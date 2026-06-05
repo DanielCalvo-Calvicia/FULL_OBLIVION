@@ -22,7 +22,8 @@ Expected health checks:
   curl http://localhost:8002/available
 
 Notes:
-- OPENAI_API_KEY is required for OpenAI modes.
+- STT_OPENAI_API_KEY is required when STT_ENGINE=openai.
+- TTS_OPENAI_API_KEY is required when TTS_ADAPTER=openai.
 - STT local mode may download faster-whisper model files into stt-model-cache.
 EOF
 

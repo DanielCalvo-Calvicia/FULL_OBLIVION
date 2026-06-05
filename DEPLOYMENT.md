@@ -229,7 +229,7 @@ Docker Compose handles this automatically. When brain has `depends_on: [micropho
 | 8002 | TTS | Yes (`SERVICE_PORT` env) | HTTP/TCP |
 | 8003 | Speaker | Yes (`SERVICE_PORT` env) | HTTP/TCP |
 
-Host port mapping is configurable via `.env` variables (`BRAIN_PORT`, `MICROPHONE_PORT`, etc.) to avoid conflicts with host services.
+Docker Compose maps the original service ports directly. If host-side port remapping is needed, change the `ports` entries in `docker-compose.yml`.
 
 ### Filesystem / Volumes
 
@@ -254,11 +254,11 @@ Host port mapping is configurable via `.env` variables (`BRAIN_PORT`, `MICROPHON
 
 | Resource | Conflict Scenario | Mitigation |
 |---|---|---|
-| Host port 7999 | Another service on host uses this port | Change `BRAIN_PORT` in `.env` |
-| Host port 8000 | Common default for many dev servers | Change `MICROPHONE_PORT` in `.env` |
-| Host port 8001 | Another service on host uses this port | Change `STT_PORT` in `.env` |
-| Host port 8002 | Another service on host uses this port | Change `TTS_PORT` in `.env` |
-| Host port 8003 | Another service on host uses this port | Change `SPEAKER_PORT` in `.env` |
+| Host port 7999 | Another service on host uses this port | Change the Brain `ports` mapping in `docker-compose.yml` |
+| Host port 8000 | Common default for many dev servers | Change the Microphone `ports` mapping in `docker-compose.yml` |
+| Host port 8001 | Another service on host uses this port | Change the STT `ports` mapping in `docker-compose.yml` |
+| Host port 8002 | Another service on host uses this port | Change the TTS `ports` mapping in `docker-compose.yml` |
+| Host port 8003 | Another service on host uses this port | Change the Speaker `ports` mapping in `docker-compose.yml` |
 
 **Internal container ports are fixed** (especially microphone at 8000 which is hardcoded). Conflicts are managed by changing host-side port mappings only.
 
@@ -273,7 +273,7 @@ Host port mapping is configurable via `.env` variables (`BRAIN_PORT`, `MICROPHON
 
 | Resource | Conflict Scenario | Mitigation |
 |---|---|---|
-| Ports 7999–8003 | Related projects at `D:\Hobbys\IA\Full_Ai_Agent\` use the same ports | Stop conflicting projects or change host port mappings via `.env` |
+| Ports 7999–8003 | Related projects at `D:\Hobbys\IA\Full_Ai_Agent\` use the same ports | Stop conflicting projects or change host port mappings in `docker-compose.yml` |
 | Audio devices | Other projects capturing the same microphone/speaker | Run only one audio-consuming project at a time |
 
 ### Unresolvable Conflicts
@@ -593,43 +593,32 @@ These should be commented out by default in the generated `docker-compose.yml` w
 # ============================================================
 # FULL_OBLIVION — Docker Compose Environment
 # ============================================================
-# Copy to .env and customize. Uncomment lines as needed.
+# Edit root .env. Docker Compose maps these values to each service's
+# original container env var names.
 # ============================================================
 
-# --- Global ---
-APP_ENV=development
-
-# --- Host Port Mapping ---
-# Change these if defaults conflict with services on the host
-BRAIN_PORT=7999
-MICROPHONE_PORT=8000
-STT_PORT=8001
-TTS_PORT=8002
-SPEAKER_PORT=8003
-
-# --- OpenAI API ---
+# STT values mapped into stt as OPENAI_API_KEY, STT_ENGINE, STT_LANGUAGE
 # Required for STT_ENGINE=openai and TTS_ADAPTER=openai
-OPENAI_API_KEY=
-
-# --- STT ---
+STT_OPENAI_API_KEY=
 STT_ENGINE=openai
 STT_LANGUAGE=en
 
-# --- TTS ---
+# TTS values mapped into tts as OPENAI_API_KEY and TTS_* / OPENAI_* vars
+TTS_OPENAI_API_KEY=
 TTS_ADAPTER=openai
-OPENAI_TTS_MODEL=gpt-4o-mini-tts
-OPENAI_TTS_VOICE=alloy
-OPENAI_TTS_RESPONSE_FORMAT=wav
+TTS_OPENAI_TTS_MODEL=gpt-4o-mini-tts
+TTS_OPENAI_TTS_VOICE=alloy
+TTS_OPENAI_TTS_RESPONSE_FORMAT=wav
 # pyttsx3 only:
 TTS_SPEECH_RATE=140
 TTS_VOICE_NAME=
 
 # --- Speaker ---
 SPEAKER_DEVICE_INDEX=
-SPEAKER_DEVICE_KEYWORDS=default
+SPEAKER_DEVICE_KEYWORDS=i2s,hw,default,sysdefault
 
 # --- Brain ---
-STARTUP_PREFLIGHT_TIMEOUT_SECONDS=120
+BRAIN_STARTUP_PREFLIGHT_TIMEOUT_SECONDS=60
 MICROSERVICE_READY_POLL_INTERVAL_SECONDS=3
 
 # --- Audio Hardware (Linux) ---

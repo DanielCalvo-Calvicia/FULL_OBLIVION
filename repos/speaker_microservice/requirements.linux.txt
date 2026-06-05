@@ -1,0 +1,17 @@
+# NOTE: On Linux/Raspberry Pi systems, install the following packages first:
+# sudo apt-get update && sudo apt-get install -y portaudio19-dev python3-pyaudio python3-sounddevice
+
+# HTTP & Server
+fastapi
+uvicorn
+python-dotenv
+httpx
+
+# Audio & DSP
+sounddevice
+soundfile
+numpy
+
+# Testing & Dev
+pytest
+websockets

@@ -10,7 +10,7 @@ Full containerized audio deployment is best suited to a Linux Docker host. Windo
 - Git.
 - Internet access for repository clones, image builds, and OpenAI-backed STT/TTS modes.
 - Linux audio hardware access for full containerized microphone/speaker use.
-- `OPENAI_API_KEY` when `STT_ENGINE=openai` or `TTS_ADAPTER=openai`.
+- Root `.env` configured from `.env.example`. Use `STT_OPENAI_API_KEY` when `STT_ENGINE=openai` and `TTS_OPENAI_API_KEY` when `TTS_ADAPTER=openai`.
 
 ## Bootstrap
 
@@ -35,8 +35,9 @@ Use `windows-audio` when `microphone_microservice` and `speaker_microservice` ar
 This sets:
 
 ```ini
-MICROPHONE_BASE_URL=http://host.docker.internal:8000
-SPEAKER_BASE_URL=http://host.docker.internal:8003
+BRAIN_MICROPHONE_BASE_URL=http://host.docker.internal:8000
+BRAIN_SPEAKER_BASE_URL=http://host.docker.internal:8003
+BRAIN_STARTUP_PREFLIGHT_ENABLED=false
 ```
 
 Use `windows-speaker` when `speaker_microservice` is running natively in VS Code on Windows and Docker should start brain, microphone, STT, and TTS:
@@ -45,7 +46,7 @@ Use `windows-speaker` when `speaker_microservice` is running natively in VS Code
 .\scripts\start.ps1 -Scenario windows-speaker
 ```
 
-This sets `SPEAKER_BASE_URL=http://host.docker.internal:8003` for the Docker run.
+This sets `BRAIN_SPEAKER_BASE_URL=http://host.docker.internal:8003` and `BRAIN_STARTUP_PREFLIGHT_ENABLED=false` for the Docker run.
 
 Manual bootstrap commands are also available when you want separate control over cloning and starting.
 
@@ -61,7 +62,7 @@ Bash:
 ./scripts/repo/bootstrap.sh
 ```
 
-Bootstrap creates `repos/`, clones the five service repositories, copies the generated Dockerfiles into each repo, creates `.env` from `.env.example` if needed, and builds the full stack.
+Bootstrap creates `repos/`, clones the five service repositories, creates root `.env` from `.env.example` if needed, copies generated Dockerfiles from `dockerfiles/` into the cloned repositories, and builds the full stack.
 
 Run bootstrap before any `scripts/run/*` execution script. The run scripts expect build contexts such as `repos/tts_microservice` to exist.
 
@@ -77,33 +78,117 @@ To clone and prepare files without building:
 
 ## Configuration
 
-Edit `.env` before starting services. The most common settings are:
+Edit root `.env` before starting services. This is the only Compose env source. Docker Compose reads `D:\Hobbys\IA\FULL_OBLIVION\.env` and maps those root values into each container using the exact original project env var names.
+
+Do not rely on `.env` files inside `repos/<service>_microservice/`. They are not required for Docker Compose and are not expected to exist after a clean GitHub clone.
+
+The most common settings are:
 
 ```ini
-OPENAI_API_KEY=
+STT_OPENAI_API_KEY=
 STT_ENGINE=openai
+
+TTS_OPENAI_API_KEY=
 TTS_ADAPTER=openai
-BRAIN_PORT=7999
-MICROPHONE_PORT=8000
-STT_PORT=8001
-TTS_PORT=8002
-SPEAKER_PORT=8003
-MICROPHONE_BASE_URL=http://microphone:8000
-STT_BASE_URL=http://stt:8001
-TTS_BASE_URL=http://tts:8002
-SPEAKER_BASE_URL=http://speaker:8003
+
+BRAIN_MICROPHONE_BASE_URL=http://microphone:8000
+BRAIN_STT_BASE_URL=http://stt:8001
+BRAIN_TTS_BASE_URL=http://tts:8002
+BRAIN_SPEAKER_BASE_URL=http://speaker:8003
 ```
 
-Change host port mappings if another local project already uses ports `7999` through `8003`.
+Docker Compose uses the original internal service ports `7999` through `8003`.
 
 For distributed hosts, replace dependency URLs with LAN-reachable addresses from the brain container or process:
 
 ```ini
-MICROPHONE_BASE_URL=http://192.168.1.20:8000
-STT_BASE_URL=http://192.168.1.30:8001
-TTS_BASE_URL=http://192.168.1.30:8002
-SPEAKER_BASE_URL=http://192.168.1.31:8003
+BRAIN_MICROPHONE_BASE_URL=http://192.168.1.20:8000
+BRAIN_STT_BASE_URL=http://192.168.1.30:8001
+BRAIN_TTS_BASE_URL=http://192.168.1.30:8002
+BRAIN_SPEAKER_BASE_URL=http://192.168.1.31:8003
 ```
+
+## From Scratch Compose Generation
+
+Use this sequence when the workspace starts with no cloned service repositories and no generated Compose build contexts:
+
+1. Clone and prepare every service:
+
+```powershell
+.\scripts\repo\bootstrap.ps1 -SkipBuild
+```
+
+```bash
+./scripts/repo/bootstrap.sh --skip-build
+```
+
+This creates `repos/brain_microservice`, `repos/microphone_microservice`, `repos/stt_microservice`, `repos/tts_microservice`, and `repos/speaker_microservice`.
+
+2. Generate the root env file:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+```bash
+cp .env.example .env
+```
+
+Bootstrap performs this step automatically when `.env` is missing. Edit the root `.env` after it exists.
+
+3. Set service-scoped root variables in `.env`.
+
+For OpenAI-backed STT/TTS, set:
+
+```ini
+STT_OPENAI_API_KEY=
+TTS_OPENAI_API_KEY=
+```
+
+For Brain dependency routing, set:
+
+```ini
+BRAIN_MICROPHONE_BASE_URL=http://microphone:8000
+BRAIN_STT_BASE_URL=http://stt:8001
+BRAIN_TTS_BASE_URL=http://tts:8002
+BRAIN_SPEAKER_BASE_URL=http://speaker:8003
+```
+
+Compose then injects those values into the Brain container as the original names `MICROPHONE_BASE_URL`, `STT_BASE_URL`, `TTS_BASE_URL`, and `SPEAKER_BASE_URL`.
+
+4. Refresh generated Dockerfiles into the cloned repos:
+
+```powershell
+.\scripts\repo\update.ps1
+```
+
+```bash
+./scripts/repo/update.sh
+```
+
+The canonical generated Dockerfiles live in `dockerfiles/*.Dockerfile`. The cloned repos receive working copies at `repos/<service>_microservice/Dockerfile`, and `docker-compose.yml` builds from the canonical `dockerfiles/*.Dockerfile` paths.
+
+5. Validate the rendered Compose file:
+
+```powershell
+docker compose --profile full config --quiet
+```
+
+```bash
+docker compose --profile full config --quiet
+```
+
+6. Build and start the desired profile:
+
+```powershell
+docker compose --profile full up -d --build
+```
+
+```bash
+docker compose --profile full up -d --build
+```
+
+The scenario wrappers combine these steps. For example, `.\scripts\start.ps1 -Scenario full` bootstraps with `-SkipBuild`, then starts the selected Compose profiles with `--build`.
 
 ## Starting Services
 
@@ -173,10 +258,10 @@ Available simulations:
 For example, to preview a Windows microphone plus Raspberry Pi service layout:
 
 ```bash
-MICROPHONE_BASE_URL=http://192.168.1.20:8000 \
-STT_BASE_URL=http://192.168.1.30:8001 \
-TTS_BASE_URL=http://192.168.1.30:8002 \
-SPEAKER_BASE_URL=http://192.168.1.30:8003 \
+BRAIN_MICROPHONE_BASE_URL=http://192.168.1.20:8000 \
+BRAIN_STT_BASE_URL=http://192.168.1.30:8001 \
+BRAIN_TTS_BASE_URL=http://192.168.1.30:8002 \
+BRAIN_SPEAKER_BASE_URL=http://192.168.1.30:8003 \
 ./scripts/simulate/simulate-brain-remote.sh
 ```
 
@@ -284,7 +369,7 @@ Example layout:
 |---|---|---|
 | Windows PC | native `microphone_microservice` | Must bind to a LAN-reachable address, not only `127.0.0.1` |
 | Raspberry Pi | `stt`, `tts`, `speaker` containers or native services | Speaker needs local audio output access |
-| Any host | `brain` container or native process | Configure `*_BASE_URL` values to service host IPs |
+| Any host | `brain` container or native process | Configure root `.env` `BRAIN_*_BASE_URL` values to service host IPs |
 
 If a service binds only to `127.0.0.1`, other machines cannot reach it. Set `SERVICE_HOST=0.0.0.0` where supported, or update that service's bind configuration.
 
@@ -334,7 +419,7 @@ Docker Desktop does not reliably expose host microphone and speaker devices to L
 
 - Missing Git authentication for private repositories.
 - Missing Docker daemon.
-- Missing `OPENAI_API_KEY` in OpenAI modes.
+- Missing `STT_OPENAI_API_KEY` or `TTS_OPENAI_API_KEY` in root `.env` for OpenAI modes.
 - Host port conflicts on `7999` through `8003`.
 - Linux audio permissions or unavailable `/dev/snd`.
 - First local STT startup taking a long time while faster-whisper downloads model files.

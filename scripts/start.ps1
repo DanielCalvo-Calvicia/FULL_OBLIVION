@@ -19,11 +19,13 @@ $ProfilesByScenario = @{
 $Profiles = $ProfilesByScenario[$Scenario]
 $EnvOverridesByScenario = @{
     "windows-audio" = @{
-        "MICROPHONE_BASE_URL" = "http://host.docker.internal:8000"
-        "SPEAKER_BASE_URL" = "http://host.docker.internal:8003"
+        "BRAIN_MICROPHONE_BASE_URL" = "http://host.docker.internal:8000"
+        "BRAIN_SPEAKER_BASE_URL" = "http://host.docker.internal:8003"
+        "BRAIN_STARTUP_PREFLIGHT_ENABLED" = "false"
     }
     "windows-speaker" = @{
-        "SPEAKER_BASE_URL" = "http://host.docker.internal:8003"
+        "BRAIN_SPEAKER_BASE_URL" = "http://host.docker.internal:8003"
+        "BRAIN_STARTUP_PREFLIGHT_ENABLED" = "false"
     }
 }
 $ComposeArgs = @()

@@ -26,7 +26,8 @@ Expected health checks:
 
 Notes:
 - Linux audio passthrough may be required for microphone/speaker.
-- OPENAI_API_KEY is required when STT_ENGINE=openai or TTS_ADAPTER=openai.
+- STT_OPENAI_API_KEY is required when STT_ENGINE=openai.
+- TTS_OPENAI_API_KEY is required when TTS_ADAPTER=openai.
 EOF
 
 echo

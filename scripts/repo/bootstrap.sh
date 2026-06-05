@@ -31,7 +31,14 @@ for item in "${services[@]}"; do
       continue
     fi
   else
-    echo "Repository exists, skipping clone: $name"
+    echo "Repository exists, updating $name to $branch..."
+    if [[ -n "$(git -C "$target" status --porcelain -- . ':(exclude)Dockerfile' ':(exclude).dockerignore')" ]]; then
+      echo "Local changes found in $name; skipping git update."
+    else
+      git -C "$target" fetch origin "$branch"
+      git -C "$target" checkout "$branch"
+      git -C "$target" pull --ff-only origin "$branch"
+    fi
   fi
 
   cp "$dockerfiles_dir/$dockerfile" "$target/Dockerfile"
