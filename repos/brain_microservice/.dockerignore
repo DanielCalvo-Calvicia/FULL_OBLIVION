@@ -1,0 +1,15 @@
+windows/
+linux/
+venv/
+.venv/
+.vscode/
+.pytest_cache/
+__pycache__/
+*.pyc
+.env
+.env.*
+.git/
+.gitignore
+tests/
+docs/
+*.md

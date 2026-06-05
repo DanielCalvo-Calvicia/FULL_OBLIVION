@@ -26,7 +26,20 @@ foreach ($Service in $Services) {
             Write-Host "Cloning $($Service.Name)..."
             git clone --branch $Service.Branch $Service.Git $Target
         } else {
-            Write-Host "Repository exists, skipping clone: $($Service.Name)"
+            Write-Host "Repository exists, updating $($Service.Name) to $($Service.Branch)..."
+            Push-Location $Target
+            try {
+                $Status = git status --porcelain -- . ":(exclude)Dockerfile" ":(exclude).dockerignore"
+                if ($Status) {
+                    Write-Host "Local changes found in $($Service.Name); skipping git update."
+                } else {
+                    git fetch origin $Service.Branch
+                    git checkout $Service.Branch
+                    git pull --ff-only origin $Service.Branch
+                }
+            } finally {
+                Pop-Location
+            }
         }
 
         Copy-Item -Force (Join-Path $DockerfilesDir $Service.Dockerfile) (Join-Path $Target "Dockerfile")

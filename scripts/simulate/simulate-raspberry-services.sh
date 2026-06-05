@@ -19,9 +19,9 @@ Expected command on the Raspberry Pi:
   docker compose --profile stt --profile tts --profile speaker up -d
 
 Expected URLs for brain on another host:
-  STT_BASE_URL=http://$pi_host:8001
-  TTS_BASE_URL=http://$pi_host:8002
-  SPEAKER_BASE_URL=http://$pi_host:8003
+  BRAIN_STT_BASE_URL=http://$pi_host:8001
+  BRAIN_TTS_BASE_URL=http://$pi_host:8002
+  BRAIN_SPEAKER_BASE_URL=http://$pi_host:8003
 
 Expected health checks from brain host:
   curl http://$pi_host:8001/health
