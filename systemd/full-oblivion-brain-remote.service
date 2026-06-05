@@ -1,0 +1,18 @@
+[Unit]
+Description=FULL_OBLIVION brain Docker container with remote services
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/full_oblivion
+EnvironmentFile=-/opt/full_oblivion/.env
+ExecStart=/opt/full_oblivion/scripts/run/bash/start-brain-remote.sh
+ExecStop=/opt/full_oblivion/scripts/run/bash/stop-full-oblivion.sh brain
+TimeoutStartSec=300
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

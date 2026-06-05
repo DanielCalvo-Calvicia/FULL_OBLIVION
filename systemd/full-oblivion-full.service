@@ -1,0 +1,17 @@
+[Unit]
+Description=FULL_OBLIVION full local Docker Compose stack
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/full_oblivion
+ExecStart=/opt/full_oblivion/scripts/run/bash/start-full-local.sh
+ExecStop=/opt/full_oblivion/scripts/run/bash/stop-full-oblivion.sh full
+TimeoutStartSec=300
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

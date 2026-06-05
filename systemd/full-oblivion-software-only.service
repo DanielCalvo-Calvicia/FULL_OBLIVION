@@ -1,0 +1,17 @@
+[Unit]
+Description=FULL_OBLIVION STT/TTS Docker Compose services
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/full_oblivion
+ExecStart=/opt/full_oblivion/scripts/run/bash/start-software-only.sh
+ExecStop=/opt/full_oblivion/scripts/run/bash/stop-full-oblivion.sh stt tts
+TimeoutStartSec=300
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

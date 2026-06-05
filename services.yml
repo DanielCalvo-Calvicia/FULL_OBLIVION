@@ -1,0 +1,82 @@
+version: 1
+deployment_name: full_oblivion
+repository_root: repos
+network: oblivion
+
+services:
+  brain:
+    repository: brain_microservice
+    git: https://github.com/DanielCalvo-Calvicia/brain_microservice.git
+    branch: main
+    compose_name: brain
+    dockerfile: dockerfiles/brain.Dockerfile
+    port: 7999
+    profiles: [brain, full]
+    dependencies: [microphone, stt, tts, speaker]
+    health_endpoint: /health
+    deep_health_endpoint: /integrations/health
+    volumes: []
+    devices: []
+    build_patches: []
+
+  microphone:
+    repository: microphone_microservice
+    git: https://github.com/DanielCalvo-Calvicia/microphone_microservice.git
+    branch: main
+    compose_name: microphone
+    dockerfile: dockerfiles/microphone.Dockerfile
+    port: 8000
+    profiles: [microphone, audio, full]
+    dependencies: []
+    health_endpoint: /health
+    volumes: []
+    devices:
+      optional_linux: [/dev/snd]
+    build_patches:
+      - replace hardcoded 127.0.0.1 bind with 0.0.0.0 for container networking
+
+  stt:
+    repository: stt_microservice
+    git: https://github.com/DanielCalvo-Calvicia/stt_microservice.git
+    branch: main
+    compose_name: stt
+    dockerfile: dockerfiles/stt.Dockerfile
+    port: 8001
+    profiles: [stt, transcription, full]
+    dependencies: []
+    health_endpoint: /health
+    readiness_endpoint: /available
+    volumes:
+      - stt-model-cache:/root/.cache/huggingface
+    devices: []
+    build_patches: []
+
+  tts:
+    repository: tts_microservice
+    git: https://github.com/DanielCalvo-Calvicia/tts_microservice.git
+    branch: main
+    compose_name: tts
+    dockerfile: dockerfiles/tts.Dockerfile
+    port: 8002
+    profiles: [tts, synthesis, full]
+    dependencies: []
+    health_endpoint: /health
+    readiness_endpoint: /available
+    volumes: []
+    devices: []
+    build_patches: []
+
+  speaker:
+    repository: speaker_microservice
+    git: https://github.com/DanielCalvo-Calvicia/speaker_microservice.git
+    branch: main
+    compose_name: speaker
+    dockerfile: dockerfiles/speaker.Dockerfile
+    port: 8003
+    profiles: [speaker, audio, full]
+    dependencies: []
+    health_endpoint: /health
+    volumes: []
+    devices:
+      optional_linux: [/dev/snd]
+    build_patches: []

@@ -1,0 +1,175 @@
+# FULL_OBLIVION Docker Compose deployment.
+# Run `scripts/bootstrap.*` first so ./repos contains the cloned microservices
+# and each repo has its generated Dockerfile copied into place.
+
+services:
+  microphone:
+    build:
+      context: ./repos/microphone_microservice
+      dockerfile: Dockerfile
+    image: full-oblivion/microphone:local
+    pull_policy: never
+    container_name: oblivion-microphone
+    profiles: ["microphone", "audio", "full"]
+    restart: unless-stopped
+    ports:
+      - "${MICROPHONE_PORT:-8000}:8000"
+    environment:
+      APP_ENV: "${APP_ENV:-development}"
+      # The microphone source currently hardcodes host/port. The generated
+      # Dockerfile patches it to bind 0.0.0.0:8000 at build time.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - oblivion
+    # Linux audio passthrough examples. Uncomment and tune for the target host.
+    # devices:
+    #   - /dev/snd:/dev/snd
+    # volumes:
+    #   - /run/user/${HOST_UID:-1000}/pulse:/run/user/1000/pulse
+    # environment:
+    #   PULSE_SERVER: unix:/run/user/1000/pulse/native
+
+  stt:
+    build:
+      context: ./repos/stt_microservice
+      dockerfile: Dockerfile
+    image: full-oblivion/stt:local
+    pull_policy: never
+    container_name: oblivion-stt
+    profiles: ["stt", "transcription", "full"]
+    restart: unless-stopped
+    ports:
+      - "${STT_PORT:-8001}:8001"
+    environment:
+      APP_ENV: "${APP_ENV:-development}"
+      SERVICE_HOST: "0.0.0.0"
+      SERVICE_PORT: "8001"
+      STT_ENGINE: "${STT_ENGINE:-openai}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      AUTOLOAD_VOICE_STREAM_URL: "${AUTOLOAD_VOICE_STREAM_URL:-}"
+    volumes:
+      - stt-model-cache:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=5)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - oblivion
+
+  tts:
+    build:
+      context: ./repos/tts_microservice
+      dockerfile: Dockerfile
+    image: full-oblivion/tts:local
+    pull_policy: never
+    container_name: oblivion-tts
+    profiles: ["tts", "synthesis", "full"]
+    restart: unless-stopped
+    ports:
+      - "${TTS_PORT:-8002}:8002"
+    environment:
+      APP_ENV: "${APP_ENV:-development}"
+      SERVICE_HOST: "0.0.0.0"
+      SERVICE_PORT: "8002"
+      TTS_ADAPTER: "${TTS_ADAPTER:-openai}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OPENAI_TTS_MODEL: "${OPENAI_TTS_MODEL:-gpt-4o-mini-tts}"
+      OPENAI_TTS_VOICE: "${OPENAI_TTS_VOICE:-alloy}"
+      OPENAI_TTS_RESPONSE_FORMAT: "${OPENAI_TTS_RESPONSE_FORMAT:-wav}"
+      OPENAI_TTS_INSTRUCTIONS: "${OPENAI_TTS_INSTRUCTIONS:-}"
+      OPENAI_TTS_SPEED: "${OPENAI_TTS_SPEED:-}"
+      TTS_SPEECH_RATE: "${TTS_SPEECH_RATE:-140}"
+      TTS_VOICE_NAME: "${TTS_VOICE_NAME:-}"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health', timeout=5)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - oblivion
+
+  speaker:
+    build:
+      context: ./repos/speaker_microservice
+      dockerfile: Dockerfile
+    image: full-oblivion/speaker:local
+    pull_policy: never
+    container_name: oblivion-speaker
+    profiles: ["speaker", "audio", "full"]
+    restart: unless-stopped
+    ports:
+      - "${SPEAKER_PORT:-8003}:8003"
+    environment:
+      APP_ENV: "${APP_ENV:-development}"
+      SERVICE_HOST: "0.0.0.0"
+      SERVICE_PORT: "8003"
+      SPEAKER_DEVICE_INDEX: "${SPEAKER_DEVICE_INDEX:-}"
+      SPEAKER_DEVICE_KEYWORDS: "${SPEAKER_DEVICE_KEYWORDS:-default}"
+      AUTOLOAD_STREAM_URL: "${AUTOLOAD_STREAM_URL:-}"
+      ALLOWED_ORIGINS: "${ALLOWED_ORIGINS:-*}"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health', timeout=5)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - oblivion
+    # Linux audio passthrough examples. Uncomment and tune for the target host.
+    # devices:
+    #   - /dev/snd:/dev/snd
+    # volumes:
+    #   - /run/user/${HOST_UID:-1000}/pulse:/run/user/1000/pulse
+    # environment:
+    #   PULSE_SERVER: unix:/run/user/1000/pulse/native
+
+  brain:
+    build:
+      context: ./repos/brain_microservice
+      dockerfile: Dockerfile
+    image: full-oblivion/brain:local
+    pull_policy: never
+    container_name: oblivion-brain
+    profiles: ["brain", "full"]
+    restart: unless-stopped
+    # No hard depends_on here: dependencies may run on other hosts
+    # (for example a Windows microphone and Raspberry Pi STT/TTS/speaker).
+    # Brain's startup preflight waits for the configured URLs.
+    ports:
+      - "${BRAIN_PORT:-7999}:7999"
+    environment:
+      APP_ENV: "${APP_ENV:-development}"
+      SERVICE_HOST: "0.0.0.0"
+      SERVICE_PORT: "7999"
+      MICROPHONE_BASE_URL: "${MICROPHONE_BASE_URL:-http://microphone:8000}"
+      STT_BASE_URL: "${STT_BASE_URL:-http://stt:8001}"
+      TTS_BASE_URL: "${TTS_BASE_URL:-http://tts:8002}"
+      SPEAKER_BASE_URL: "${SPEAKER_BASE_URL:-http://speaker:8003}"
+      STARTUP_PREFLIGHT_ENABLED: "${STARTUP_PREFLIGHT_ENABLED:-true}"
+      STARTUP_PREFLIGHT_TIMEOUT_SECONDS: "${STARTUP_PREFLIGHT_TIMEOUT_SECONDS:-120}"
+      MICROSERVICE_READY_POLL_INTERVAL_SECONDS: "${MICROSERVICE_READY_POLL_INTERVAL_SECONDS:-3}"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:7999/health', timeout=5)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+    networks:
+      - oblivion
+
+networks:
+  oblivion:
+    name: oblivion
+    driver: bridge
+
+volumes:
+  stt-model-cache:
+    name: oblivion-stt-model-cache
