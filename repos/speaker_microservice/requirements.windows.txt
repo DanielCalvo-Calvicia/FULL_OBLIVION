@@ -1,0 +1,14 @@
+# HTTP & Server
+fastapi
+uvicorn
+python-dotenv
+httpx
+
+# Audio & DSP
+sounddevice
+soundfile
+numpy
+
+# Testing & Dev
+pytest
+websockets

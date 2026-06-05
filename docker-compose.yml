@@ -6,18 +6,21 @@ services:
   microphone:
     build:
       context: ./repos/microphone_microservice
-      dockerfile: Dockerfile
+      dockerfile: ../../dockerfiles/microphone.Dockerfile
     image: full-oblivion/microphone:local
     pull_policy: never
     container_name: oblivion-microphone
     profiles: ["microphone", "audio", "full"]
     restart: unless-stopped
     ports:
-      - "${MICROPHONE_PORT:-8000}:8000"
+      - "${MICROPHONE_HOST_PORT}:8000"
     environment:
-      APP_ENV: "${APP_ENV:-development}"
-      # The microphone source currently hardcodes host/port. The generated
-      # Dockerfile patches it to bind 0.0.0.0:8000 at build time.
+      APP_ENV: "${MICROPHONE_APP_ENV}"
+      VSCODE_ENV: "${MICROPHONE_VSCODE_ENV}"
+      VSCODE_LAUNCH_PROFILE: "${MICROPHONE_VSCODE_LAUNCH_PROFILE}"
+      LOG_LEVEL: "${MICROPHONE_LOG_LEVEL}"
+    # The microphone source currently hardcodes host/port. The Dockerfile
+    # patches it to bind 0.0.0.0:8000 at build time.
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
       interval: 10s
@@ -37,21 +40,23 @@ services:
   stt:
     build:
       context: ./repos/stt_microservice
-      dockerfile: Dockerfile
+      dockerfile: ../../dockerfiles/stt.Dockerfile
     image: full-oblivion/stt:local
     pull_policy: never
     container_name: oblivion-stt
     profiles: ["stt", "transcription", "full"]
     restart: unless-stopped
     ports:
-      - "${STT_PORT:-8001}:8001"
+      - "${STT_HOST_PORT}:${STT_SERVICE_PORT}"
     environment:
-      APP_ENV: "${APP_ENV:-development}"
-      SERVICE_HOST: "0.0.0.0"
-      SERVICE_PORT: "8001"
-      STT_ENGINE: "${STT_ENGINE:-openai}"
-      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
-      AUTOLOAD_VOICE_STREAM_URL: "${AUTOLOAD_VOICE_STREAM_URL:-}"
+      APP_ENV: "${STT_APP_ENV}"
+      VSCODE_ENV: "${STT_VSCODE_ENV}"
+      SERVICE_HOST: "${STT_SERVICE_HOST}"
+      SERVICE_PORT: "${STT_SERVICE_PORT}"
+      STT_ENGINE: "${STT_ENGINE}"
+      STT_LANGUAGE: "${STT_LANGUAGE}"
+      OPENAI_API_KEY: "${STT_OPENAI_API_KEY}"
+      AUTOLOAD_VOICE_STREAM_URL: "${STT_AUTOLOAD_VOICE_STREAM_URL}"
     volumes:
       - stt-model-cache:/root/.cache/huggingface
     healthcheck:
@@ -66,27 +71,31 @@ services:
   tts:
     build:
       context: ./repos/tts_microservice
-      dockerfile: Dockerfile
+      dockerfile: ../../dockerfiles/tts.Dockerfile
     image: full-oblivion/tts:local
     pull_policy: never
     container_name: oblivion-tts
     profiles: ["tts", "synthesis", "full"]
     restart: unless-stopped
     ports:
-      - "${TTS_PORT:-8002}:8002"
+      - "${TTS_HOST_PORT}:${TTS_SERVICE_PORT}"
     environment:
-      APP_ENV: "${APP_ENV:-development}"
-      SERVICE_HOST: "0.0.0.0"
-      SERVICE_PORT: "8002"
-      TTS_ADAPTER: "${TTS_ADAPTER:-openai}"
-      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
-      OPENAI_TTS_MODEL: "${OPENAI_TTS_MODEL:-gpt-4o-mini-tts}"
-      OPENAI_TTS_VOICE: "${OPENAI_TTS_VOICE:-alloy}"
-      OPENAI_TTS_RESPONSE_FORMAT: "${OPENAI_TTS_RESPONSE_FORMAT:-wav}"
-      OPENAI_TTS_INSTRUCTIONS: "${OPENAI_TTS_INSTRUCTIONS:-}"
-      OPENAI_TTS_SPEED: "${OPENAI_TTS_SPEED:-}"
-      TTS_SPEECH_RATE: "${TTS_SPEECH_RATE:-140}"
-      TTS_VOICE_NAME: "${TTS_VOICE_NAME:-}"
+      APP_ENV: "${TTS_APP_ENV}"
+      VSCODE_ENV: "${TTS_VSCODE_ENV}"
+      VSCODE_LAUNCH_PROFILE: "${TTS_VSCODE_LAUNCH_PROFILE}"
+      SERVICE_HOST: "${TTS_SERVICE_HOST}"
+      SERVICE_PORT: "${TTS_SERVICE_PORT}"
+      TTS_ADAPTER: "${TTS_ADAPTER}"
+      TTS_SPEECH_RATE: "${TTS_SPEECH_RATE}"
+      TTS_VOICE_NAME: "${TTS_VOICE_NAME}"
+      OPENAI_API_KEY: "${TTS_OPENAI_API_KEY}"
+      OPENAI_TTS_MODEL: "${TTS_OPENAI_TTS_MODEL}"
+      OPENAI_TTS_VOICE: "${TTS_OPENAI_TTS_VOICE}"
+      OPENAI_TTS_RESPONSE_FORMAT: "${TTS_OPENAI_TTS_RESPONSE_FORMAT}"
+      OPENAI_TTS_INSTRUCTIONS: "${TTS_OPENAI_TTS_INSTRUCTIONS}"
+      OPENAI_TTS_SPEED: "${TTS_OPENAI_TTS_SPEED}"
+      OPENAI_BASE_URL: "${TTS_OPENAI_BASE_URL}"
+      TTS_TEST_BASE_URL: "${TTS_TEST_BASE_URL}"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health', timeout=5)"]
       interval: 10s
@@ -99,22 +108,24 @@ services:
   speaker:
     build:
       context: ./repos/speaker_microservice
-      dockerfile: Dockerfile
+      dockerfile: ../../dockerfiles/speaker.Dockerfile
     image: full-oblivion/speaker:local
     pull_policy: never
     container_name: oblivion-speaker
     profiles: ["speaker", "audio", "full"]
     restart: unless-stopped
     ports:
-      - "${SPEAKER_PORT:-8003}:8003"
+      - "${SPEAKER_HOST_PORT}:${SPEAKER_SERVICE_PORT}"
     environment:
-      APP_ENV: "${APP_ENV:-development}"
-      SERVICE_HOST: "0.0.0.0"
-      SERVICE_PORT: "8003"
-      SPEAKER_DEVICE_INDEX: "${SPEAKER_DEVICE_INDEX:-}"
-      SPEAKER_DEVICE_KEYWORDS: "${SPEAKER_DEVICE_KEYWORDS:-default}"
-      AUTOLOAD_STREAM_URL: "${AUTOLOAD_STREAM_URL:-}"
-      ALLOWED_ORIGINS: "${ALLOWED_ORIGINS:-*}"
+      VSCODE_ENV: "${SPEAKER_VSCODE_ENV}"
+      VSCODE_LAUNCH_PROFILE: "${SPEAKER_VSCODE_LAUNCH_PROFILE}"
+      APP_ENV: "${SPEAKER_APP_ENV}"
+      SERVICE_HOST: "${SPEAKER_SERVICE_HOST}"
+      SERVICE_PORT: "${SPEAKER_SERVICE_PORT}"
+      SPEAKER_DEVICE_INDEX: "${SPEAKER_DEVICE_INDEX}"
+      SPEAKER_DEVICE_KEYWORDS: "${SPEAKER_DEVICE_KEYWORDS}"
+      ALLOWED_ORIGINS: "${SPEAKER_ALLOWED_ORIGINS}"
+      AUTOLOAD_STREAM_URL: "${SPEAKER_AUTOLOAD_STREAM_URL}"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health', timeout=5)"]
       interval: 10s
@@ -134,7 +145,7 @@ services:
   brain:
     build:
       context: ./repos/brain_microservice
-      dockerfile: Dockerfile
+      dockerfile: ../../dockerfiles/brain.Dockerfile
     image: full-oblivion/brain:local
     pull_policy: never
     container_name: oblivion-brain
@@ -144,18 +155,34 @@ services:
     # (for example a Windows microphone and Raspberry Pi STT/TTS/speaker).
     # Brain's startup preflight waits for the configured URLs.
     ports:
-      - "${BRAIN_PORT:-7999}:7999"
+      - "${BRAIN_HOST_PORT}:${BRAIN_SERVICE_PORT}"
     environment:
-      APP_ENV: "${APP_ENV:-development}"
-      SERVICE_HOST: "0.0.0.0"
-      SERVICE_PORT: "7999"
-      MICROPHONE_BASE_URL: "${MICROPHONE_BASE_URL:-http://microphone:8000}"
-      STT_BASE_URL: "${STT_BASE_URL:-http://stt:8001}"
-      TTS_BASE_URL: "${TTS_BASE_URL:-http://tts:8002}"
-      SPEAKER_BASE_URL: "${SPEAKER_BASE_URL:-http://speaker:8003}"
-      STARTUP_PREFLIGHT_ENABLED: "${STARTUP_PREFLIGHT_ENABLED:-true}"
-      STARTUP_PREFLIGHT_TIMEOUT_SECONDS: "${STARTUP_PREFLIGHT_TIMEOUT_SECONDS:-120}"
-      MICROSERVICE_READY_POLL_INTERVAL_SECONDS: "${MICROSERVICE_READY_POLL_INTERVAL_SECONDS:-3}"
+      APP_ENV: "${BRAIN_APP_ENV}"
+      VSCODE_ENV: "${BRAIN_VSCODE_ENV}"
+      VSCODE_LAUNCH_PROFILE: "${BRAIN_VSCODE_LAUNCH_PROFILE}"
+      SERVICE_HOST: "${BRAIN_SERVICE_HOST}"
+      SERVICE_PORT: "${BRAIN_SERVICE_PORT}"
+      PROVIDER_NAME: "${BRAIN_PROVIDER_NAME}"
+      PROVIDER_TIMEOUT_SECONDS: "${BRAIN_PROVIDER_TIMEOUT_SECONDS}"
+      PROVIDER_API_KEY: "${BRAIN_PROVIDER_API_KEY}"
+      MICROPHONE_BASE_URL: "${BRAIN_MICROPHONE_BASE_URL}"
+      MICROPHONE_STREAM_ENDPOINT: "${BRAIN_MICROPHONE_STREAM_ENDPOINT}"
+      MICROPHONE_START_ENDPOINT: "${BRAIN_MICROPHONE_START_ENDPOINT}"
+      MICROPHONE_STOP_ENDPOINT: "${BRAIN_MICROPHONE_STOP_ENDPOINT}"
+      STT_BASE_URL: "${BRAIN_STT_BASE_URL}"
+      STT_SET_STREAM_ENDPOINT: "${BRAIN_STT_SET_STREAM_ENDPOINT}"
+      STT_GET_STREAM_ENDPOINT: "${BRAIN_STT_GET_STREAM_ENDPOINT}"
+      STT_BATCH_ENDPOINT: "${BRAIN_STT_BATCH_ENDPOINT}"
+      TTS_BASE_URL: "${BRAIN_TTS_BASE_URL}"
+      TTS_SET_STREAM_ENDPOINT: "${BRAIN_TTS_SET_STREAM_ENDPOINT}"
+      TTS_STREAM_ENDPOINT: "${BRAIN_TTS_STREAM_ENDPOINT}"
+      SPEAKER_BASE_URL: "${BRAIN_SPEAKER_BASE_URL}"
+      SPEAKER_PLAY_STREAM_ENDPOINT: "${BRAIN_SPEAKER_PLAY_STREAM_ENDPOINT}"
+      SPEAKER_STREAM_ENDPOINT: "${BRAIN_SPEAKER_STREAM_ENDPOINT}"
+      STARTUP_PREFLIGHT_ENABLED: "${BRAIN_STARTUP_PREFLIGHT_ENABLED}"
+      STARTUP_PREFLIGHT_TIMEOUT_SECONDS: "${BRAIN_STARTUP_PREFLIGHT_TIMEOUT_SECONDS}"
+      MICROSERVICE_READY_POLL_INTERVAL_SECONDS: "${BRAIN_MICROSERVICE_READY_POLL_INTERVAL_SECONDS}"
+      RUN_LIVE_MICROSERVICE_TESTS: "${BRAIN_RUN_LIVE_MICROSERVICE_TESTS}"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:7999/health', timeout=5)"]
       interval: 15s

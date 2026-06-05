@@ -1,0 +1,14 @@
+#REQUESTS
+#HTTP
+fastapi
+uvicorn
+
+#AUDIO
+#SoundDevice
+sounddevice
+soundfile
+numpy
+
+
+#TESTING
+pytest

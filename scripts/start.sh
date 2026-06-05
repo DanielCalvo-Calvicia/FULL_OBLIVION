@@ -13,12 +13,14 @@ case "$scenario" in
     ;;
   windows-audio)
     profiles=(brain stt tts)
-    export MICROPHONE_BASE_URL="${MICROPHONE_BASE_URL:-http://host.docker.internal:8000}"
-    export SPEAKER_BASE_URL="${SPEAKER_BASE_URL:-http://host.docker.internal:8003}"
+    export BRAIN_MICROPHONE_BASE_URL="${BRAIN_MICROPHONE_BASE_URL:-http://host.docker.internal:8000}"
+    export BRAIN_SPEAKER_BASE_URL="${BRAIN_SPEAKER_BASE_URL:-http://host.docker.internal:8003}"
+    export BRAIN_STARTUP_PREFLIGHT_ENABLED="${BRAIN_STARTUP_PREFLIGHT_ENABLED:-false}"
     ;;
   windows-speaker)
     profiles=(brain microphone stt tts)
-    export SPEAKER_BASE_URL="${SPEAKER_BASE_URL:-http://host.docker.internal:8003}"
+    export BRAIN_SPEAKER_BASE_URL="${BRAIN_SPEAKER_BASE_URL:-http://host.docker.internal:8003}"
+    export BRAIN_STARTUP_PREFLIGHT_ENABLED="${BRAIN_STARTUP_PREFLIGHT_ENABLED:-false}"
     ;;
   software-only)
     profiles=(stt tts)
@@ -45,11 +47,13 @@ echo "FULL_OBLIVION start from scratch"
 echo "Scenario: $scenario"
 echo "Profiles: ${profiles[*]}"
 if [[ "$scenario" == "windows-audio" ]]; then
-  echo "MICROPHONE_BASE_URL=$MICROPHONE_BASE_URL"
-  echo "SPEAKER_BASE_URL=$SPEAKER_BASE_URL"
+  echo "BRAIN_MICROPHONE_BASE_URL=$BRAIN_MICROPHONE_BASE_URL"
+  echo "BRAIN_SPEAKER_BASE_URL=$BRAIN_SPEAKER_BASE_URL"
+  echo "BRAIN_STARTUP_PREFLIGHT_ENABLED=$BRAIN_STARTUP_PREFLIGHT_ENABLED"
 fi
 if [[ "$scenario" == "windows-speaker" ]]; then
-  echo "SPEAKER_BASE_URL=$SPEAKER_BASE_URL"
+  echo "BRAIN_SPEAKER_BASE_URL=$BRAIN_SPEAKER_BASE_URL"
+  echo "BRAIN_STARTUP_PREFLIGHT_ENABLED=$BRAIN_STARTUP_PREFLIGHT_ENABLED"
 fi
 
 cd "$root"
