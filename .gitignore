@@ -140,3 +140,6 @@ ehthumbs.db
 *.bak
 *.swp
 *~
+
+# Local repository copies
+repos/

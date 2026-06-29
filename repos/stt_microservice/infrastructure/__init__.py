@@ -1,1 +1,0 @@
-# Infrastructure — concrete adapter implementations.
