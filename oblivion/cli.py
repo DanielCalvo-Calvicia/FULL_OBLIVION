@@ -42,6 +42,12 @@ def build_parser() -> argparse.ArgumentParser:
                 "--branch", "-b", action="append", default=[], metavar="[SERVICE=]REF",
                 help="branch, tag or commit for every service, or for one with SERVICE=REF (repeatable)",
             )
+        if name in ("deploy", "update", "start", "restart"):
+            p.add_argument(
+                "--remote-wait", type=float, default=120.0, metavar="SECONDS",
+                help="before starting a service, wait up to this long for the services of other machines it needs "
+                     "(default 120; 0 = do not wait). Brain exits if they are not up within its own preflight",
+            )
         if name in ("deploy", "update"):
             p.add_argument("--force", action="store_true", help="overwrite local modifications in the fetched code")
             p.add_argument("--system-deps", action="store_true", help="apt-get install the packages a service needs (Linux/Pi)")
@@ -69,6 +75,7 @@ def _manager(args: argparse.Namespace) -> Manager:
         rollback=not getattr(args, "no_rollback", False),
         health_timeout=getattr(args, "health_timeout", 60.0),
         skip_health=getattr(args, "no_health", False),
+        remote_wait=getattr(args, "remote_wait", 120.0),
     )
     return Manager(Shell(dry_run=args.dry_run), host, registry, options)
 
@@ -159,7 +166,12 @@ def _doctor(manager: Manager) -> int:
 
     check(f"python {sys.version_info.major}.{sys.version_info.minor} (need 3.11+)", sys.version_info >= (3, 11))
     check("git available", shutil.which("git") is not None, "install git")
-    check("venv module", __import__("importlib.util").util.find_spec("venv") is not None, "on Debian/Pi: sudo apt install python3-venv")
+    # Debian and Raspberry Pi OS ship the venv module without ensurepip until python3-venv is installed
+    check(
+        "venv and ensurepip (virtualenvs can be created)",
+        all(__import__("importlib.util").util.find_spec(module) is not None for module in ("venv", "ensurepip")),
+        "on Debian/Pi: sudo apt install python3-venv",
+    )
     if any(i.runtime == "docker" for i in host.services.values()):
         check("docker available", shutil.which("docker") is not None, "install Docker or use runtime = \"native\"")
     check(f"workdir {host.workdir} writable", _writable(host.workdir))

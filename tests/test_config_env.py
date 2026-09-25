@@ -147,6 +147,30 @@ def test_parse_env_handles_comments_quotes_and_export():
     assert parse_env("# c\nA=1\nexport B='two words'\nC=\"q\"\n\nBAD\n") == {"A": "1", "B": "two words", "C": "q"}
 
 
+def test_inline_comments_are_not_part_of_the_value():
+    """ai-agent's .env.example documents its settings this way; `int("6   # exchanges...")` crashed it on start."""
+    text = "\n".join([
+        "AI_AGENT_HISTORY_TURNS=6   # exchanges (user message + reply) remembered per session",
+        "AI_AGENT_FAST_PATH_ENABLED=1  # 1 = skip project manager; 0 = always run the full pipeline",
+        "LANGFUSE_HOST=             # empty = https://cloud.langfuse.com (EU)",
+        "A=#not-a-value",
+        "B=abc#def",
+        "C='keeps # inside quotes'  # but not this",
+        'D="also # kept"',
+        "E='{\"stepper_1\": {\"step\": 17}}'",
+    ])
+    assert parse_env(text) == {
+        "AI_AGENT_HISTORY_TURNS": "6",
+        "AI_AGENT_FAST_PATH_ENABLED": "1",
+        "LANGFUSE_HOST": "",
+        "A": "",
+        "B": "abc#def",
+        "C": "keeps # inside quotes",
+        "D": "also # kept",
+        "E": '{"stepper_1": {"step": 17}}',
+    }
+
+
 def test_a_broken_host_file_says_what_is_wrong(registry, tmp_path):
     with pytest.raises(DeployError, match="unknown service 'nope'"):
         load_host(host_file(tmp_path, "[services.nope]\n"), registry)

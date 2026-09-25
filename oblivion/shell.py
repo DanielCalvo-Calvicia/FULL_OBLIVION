@@ -14,6 +14,7 @@ class Shell:
     def __init__(self, dry_run: bool = False, echo: bool = True) -> None:
         self.dry_run = dry_run
         self.echo = echo
+        self.apt_updated = False  # `apt-get update` runs once per invocation, before the first install
 
     def say(self, message: str) -> None:
         print(message, flush=True)

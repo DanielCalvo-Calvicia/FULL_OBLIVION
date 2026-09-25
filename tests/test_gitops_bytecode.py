@@ -1,4 +1,4 @@
-"""Tracked __pycache__ files rewritten by running a service are not 'local modifications'."""
+"""Tracked __pycache__ files and the generated .env that deploying rewrites are not 'local modifications'."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import pytest
 
 from oblivion import gitops
 from oblivion.config import DeployError
+from oblivion.envfile import GENERATED_HEADER
 from oblivion.shell import Shell
 
 
@@ -26,6 +27,7 @@ def clone(tmp_path):
     (remote / "__pycache__").mkdir()
     (remote / "__pycache__" / "a.cpython-314.pyc").write_bytes(b"old")
     (remote / "main.py").write_text("x = 1\n")
+    (remote / ".env").write_text("SERVICE_PORT=8005\n")  # the stepper repo tracks its .env
     _git(remote, "add", "-A")
     _git(remote, "commit", "-qm", "init")
     repo = tmp_path / "repo"
@@ -48,3 +50,19 @@ def test_a_real_edit_next_to_bytecode_is_still_refused(clone):
     with pytest.raises(DeployError, match="local modifications"):
         gitops.sync(Shell(), str(remote), repo, "main")
     assert (repo / "main.py").read_text() == "x = 2\n"
+
+
+def test_the_env_file_this_tool_generated_does_not_block_the_next_update(clone):
+    repo, remote = clone
+    (repo / ".env").write_text(GENERATED_HEADER.format(host="pi") + "SERVICE_PORT=8005\nMOCK_HARDWARE=0\n")
+    previous, new = gitops.sync(Shell(), str(remote), repo, "main")
+    assert previous == new
+    assert (repo / ".env").read_text() == "SERVICE_PORT=8005\n"  # back to the committed file; deploy rewrites it next
+
+
+def test_a_hand_edited_tracked_env_is_still_refused(clone):
+    repo, remote = clone
+    (repo / ".env").write_text("SERVICE_PORT=9999\n")
+    with pytest.raises(DeployError, match="local modifications"):
+        gitops.sync(Shell(), str(remote), repo, "main")
+    assert (repo / ".env").read_text() == "SERVICE_PORT=9999\n"

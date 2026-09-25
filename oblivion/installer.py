@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import sys
+import tomllib
 from pathlib import Path
 
 from .config import DeployError, Host, Registry, ServiceSpec
@@ -16,7 +17,7 @@ _PATH_ESCAPE = re.compile(r"^\s*(-e|--editable)\s+\.\.[/\\]")
 
 def requirements_file(host: Host, spec: ServiceSpec, service_dir: Path) -> tuple[Path | None, str | None]:
     """The requirements file for this OS and a warning when the other OS's file had to be used."""
-    wanted = spec.requirements.get(host.os_family)
+    wanted = (spec.requirements.get("raspberry") if host.is_raspberry else None) or spec.requirements.get(host.os_family)
     other_family = "linux" if host.os_family == "windows" else "windows"
     if wanted and (service_dir / wanted).exists():
         return service_dir / wanted, None
@@ -31,6 +32,36 @@ def requirements_file(host: Host, spec: ServiceSpec, service_dir: Path) -> tuple
     return None, f"{spec.name}: no requirements file found in {service_dir}"
 
 
+def interpreter_version(shell: Shell, host: Host) -> tuple[int, int]:
+    """Version of the Python that builds the virtualenvs: ``[host] python``, else the one running this tool."""
+    if host.python is None:
+        return sys.version_info[0], sys.version_info[1]
+    result = shell.run(
+        [host.python, "-c", "import sys; print(sys.version_info[0], sys.version_info[1])"],
+        check=False, capture=True, mutating=False,
+    )
+    try:
+        major, minor = result.stdout.split()[:2]
+        return int(major), int(minor)
+    except ValueError as error:
+        raise DeployError(f"cannot run the Python named in [host] python: {host.python}") from error
+
+
+def check_python(shell: Shell, host: Host, selected: list[str]) -> list[str]:
+    """Errors for native services whose dependencies need a newer Python than the one that will build their venv."""
+    needing = [n for n in selected if host.services[n].runtime == "native" and host.services[n].spec.min_python]
+    if not needing:
+        return []
+    found = interpreter_version(shell, host)
+    return [
+        f"{name} needs Python {'.'.join(map(str, spec.min_python))}+ but the interpreter for this machine is "
+        f"{found[0]}.{found[1]}: install a newer Python and set [host] python = \"<path>\", or run {name} on another "
+        f"machine and list it under [remote]"
+        for name in needing
+        if (spec := host.services[name].spec) and spec.min_python and found < spec.min_python
+    ]
+
+
 def filtered_requirements(path: Path) -> str:
     """The file without ``-e ../<sibling>`` lines: independent repos have no siblings.
 
@@ -40,33 +71,106 @@ def filtered_requirements(path: Path) -> str:
     return "\n".join(kept) + "\n"
 
 
-def library_pip_args(registry: Registry, library: str) -> list[str]:
+def _resolve(registry: Registry, value: str) -> Path:
+    """A configured path: ``~`` expanded, relative ones relative to services.toml (never to the caller's cwd)."""
+    path = Path(value).expanduser()
+    return path if path.is_absolute() else (registry.base_dir / path).resolve()
+
+
+def _library_wheels(registry: Registry, library: str, folder: Path) -> list[Path]:
+    prefix = library.replace("-", "_").lower() + "-"
+    return sorted(p for p in folder.glob("*.whl") if p.name.lower().startswith(prefix)) if folder.is_dir() else []
+
+
+def bundled_wheels(registry: Registry, library: str) -> list[Path]:
+    """The wheels of a library served from ``wheel_dir``."""
+    kind, location = library_source(registry, library)
+    return _library_wheels(registry, library, Path(location)) if kind == "wheel_dir" else []
+
+
+def library_source(registry: Registry, library: str) -> tuple[str, Path | str]:
+    """``(kind, location)`` of the first usable source, in the order ``path``, ``wheel_dir``, ``git``.
+
+    ``path`` is the workspace checkout (only usable where it exists); ``wheel_dir`` holds wheels bundled with
+    this repository, so a machine without the workspace still gets the library.
+    """
     source = registry.libraries.get(library)
     if not source:
         raise DeployError(f"library {library!r} is not defined in services.toml [libraries]")
-    if "path" in source:
-        path = Path(source["path"]).expanduser()
-        path = path if path.is_absolute() else (registry.base_dir / path).resolve()
-        if not path.exists():
-            raise DeployError(
-                f"library {library!r}: {path} does not exist. Set [libraries.{library}] git or wheel_dir "
-                "in services.toml for machines that do not have the workspace"
-            )
-        return [str(path)]
+    if "path" in source and _resolve(registry, source["path"]).exists():
+        return "path", _resolve(registry, source["path"])
+    if "wheel_dir" in source and _library_wheels(registry, library, _resolve(registry, source["wheel_dir"])):
+        return "wheel_dir", _resolve(registry, source["wheel_dir"])
     if "git" in source:
-        return [f"git+{source['git']}"]
-    if "wheel_dir" in source:
-        return ["--no-index", "--find-links", str(Path(source["wheel_dir"]).expanduser()), library]
-    raise DeployError(f"library {library!r}: give path, git or wheel_dir")
+        return "git", source["git"]
+    tried = [f"path {_resolve(registry, source['path'])}"] if "path" in source else []
+    tried += [f"wheel_dir {_resolve(registry, source['wheel_dir'])} (no {library} wheel)"] if "wheel_dir" in source else []
+    if not tried:
+        raise DeployError(f"library {library!r}: give path, wheel_dir or git in services.toml [libraries]")
+    raise DeployError(
+        f"library {library!r} is not available on this machine: tried {'; '.join(tried)}. "
+        f"Bundle the wheel with scripts/bundle_shared_logging.py or set [libraries.{library}] git in services.toml"
+    )
+
+
+def check_libraries(registry: Registry, libraries: set[str]) -> tuple[list[str], list[str]]:
+    """``(errors, warnings)`` for the libraries the selected services need. No network, nothing installed."""
+    errors: list[str] = []
+    warnings: list[str] = []
+    for library in sorted(libraries):
+        try:
+            kind, _ = library_source(registry, library)
+        except DeployError as error:
+            errors.append(str(error))
+            continue
+        source = registry.libraries[library]
+        if kind == "path" and "wheel_dir" in source:
+            stale = _stale_wheel(registry, library)
+            if stale:
+                warnings.append(stale)
+    return errors, warnings
+
+
+def _stale_wheel(registry: Registry, library: str) -> str | None:
+    """A message when the bundled wheel is older than the checkout it was built from (other machines get the wheel)."""
+    source = registry.libraries[library]
+    wheels = _library_wheels(registry, library, _resolve(registry, source["wheel_dir"]))
+    project = _resolve(registry, source["path"]) / "pyproject.toml"
+    try:
+        with project.open("rb") as handle:
+            version = tomllib.load(handle)["project"]["version"]
+    except (OSError, KeyError, tomllib.TOMLDecodeError):
+        return None
+    bundled = [w.name.split("-")[1] for w in wheels]
+    if version in bundled:
+        return None
+    return (
+        f"library {library}: the checkout is version {version} but the bundled wheel is "
+        f"{', '.join(bundled) or 'missing'}; machines without the workspace get the wheel. "
+        "Run scripts/bundle_shared_logging.py and commit it"
+    )
+
+
+def library_pip_args(registry: Registry, library: str) -> list[str]:
+    kind, location = library_source(registry, library)
+    if kind == "path":
+        return [str(location)]
+    if kind == "wheel_dir":
+        # --no-index: a same-named package on PyPI must never win. --force-reinstall: a rebuilt wheel of the
+        # same version still replaces the installed one. Dependencies come from the service's own requirements.
+        return ["--no-index", "--no-deps", "--force-reinstall", "--find-links", str(location), library]
+    return [f"git+{location}"]
 
 
 def _library_stamp(registry: Registry, library: str) -> str:
-    source = registry.libraries.get(library, {})
-    if "path" in source:
-        root = Path(library_pip_args(registry, library)[0])
+    kind, location = library_source(registry, library)
+    if kind == "path":
+        root = Path(location)
         files = sorted(p for p in root.rglob("*.py") if "__pycache__" not in p.parts)
         return json.dumps([[str(p.relative_to(root)), p.stat().st_size, p.stat().st_mtime_ns] for p in files])
-    return json.dumps(source, sort_keys=True)
+    if kind == "wheel_dir":
+        return json.dumps([[w.name, w.stat().st_size, w.stat().st_mtime_ns] for w in _library_wheels(registry, library, Path(location))])
+    return json.dumps([kind, location])
 
 
 def fingerprint(host: Host, registry: Registry, name: str, requirements: Path | None) -> str:
@@ -93,6 +197,9 @@ def install_native(
     warnings = [warning] if warning else []
 
     if system_deps and host.os_family == "linux" and spec.apt:
+        if not shell.apt_updated:  # a freshly installed machine has empty or stale package lists
+            shell.run(["sudo", "apt-get", "update"])
+            shell.apt_updated = True
         shell.run(["sudo", "apt-get", "install", "-y", *spec.apt])
     elif spec.apt and host.os_family == "linux":
         warnings.append(f"{name}: may need system packages: {' '.join(spec.apt)} (re-run with --system-deps to install them)")

@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import shutil
+import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -11,6 +15,8 @@ from .envfile import ResolvedEnv, mask, render, resolve_env
 from .shell import Shell
 from .state import State
 
+REMOTE_POLL_SECONDS = 3.0
+
 
 @dataclass
 class Options:
@@ -19,6 +25,7 @@ class Options:
     rollback: bool = True
     health_timeout: float = 60.0
     skip_health: bool = False
+    remote_wait: float = 120.0  # seconds to wait for the required services of other machines before starting
 
 
 @dataclass
@@ -76,6 +83,10 @@ class Manager:
         else:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(render(resolved.values, self.host.name), encoding="utf-8")
+            try:
+                target.chmod(0o600)  # it holds the API keys: readable by this user only (no effect on Windows)
+            except OSError:
+                pass
         return resolved.values
 
     # ------------------------------------------------------------------ prepare
@@ -114,8 +125,15 @@ class Manager:
         if not self.shell.dry_run:
             wheels_dir.mkdir(parents=True, exist_ok=True)
         for library in spec.libraries:
+            kind, location = installer.library_source(self.registry, library)
+            if kind == "wheel_dir":  # already a wheel: no build needed
+                for wheel in installer.bundled_wheels(self.registry, library):
+                    self.shell.say(f"copy {wheel.name} -> {wheels_dir}")
+                    if not self.shell.dry_run:
+                        shutil.copy2(wheel, wheels_dir / wheel.name)
+                continue
             self.shell.run([
-                self.host.python or __import__("sys").executable, "-m", "pip", "wheel", "--quiet", "--no-deps",
+                self.host.python or sys.executable, "-m", "pip", "wheel", "--quiet", "--no-deps",
                 "-w", wheels_dir, *installer.library_pip_args(self.registry, library),
             ])
         wheels = sorted(wheels_dir.glob("*.whl")) if wheels_dir.exists() else []
@@ -126,8 +144,40 @@ class Manager:
 
     # ------------------------------------------------------------------ run
 
+    def wait_for_remotes(self, name: str) -> None:
+        """Wait, up to ``remote_wait`` seconds, for the required services of OTHER machines that ``name`` consumes.
+
+        Brain exits when its own startup preflight times out and nothing restarts it, so a machine that boots
+        (autostart) or is deployed before the machines it depends on would leave Brain dead. Not reachable in
+        time is a warning, not an error: the service still gets to try, and its own preflight decides.
+        """
+        spec = self.host.services[name].spec
+        pending = {
+            target: self.host.remote[target]
+            for target in spec.consumes
+            if target in self.host.remote and target not in self.host.services
+            and target not in spec.optional_consumes and target in self.registry.services
+        }
+        if not pending or self.shell.dry_run or self.options.remote_wait <= 0:
+            return
+        self.shell.say(f"{name}: waiting up to {self.options.remote_wait:g}s for {', '.join(pending)} on other machines")
+        deadline = time.monotonic() + self.options.remote_wait
+        while True:
+            # concurrently: an unreachable host takes seconds to fail, and one pass must not outlast the deadline
+            with ThreadPoolExecutor(max_workers=len(pending)) as pool:
+                results = {t: pool.submit(health.check, url, self.registry.services[t]) for t, url in pending.items()}
+            for target, future in results.items():
+                if future.result()[0]:
+                    self.shell.say(f"{name}: {target} is up at {pending.pop(target)}")
+            if not pending or time.monotonic() >= deadline:
+                break
+            time.sleep(REMOTE_POLL_SECONDS)
+        for target, url in pending.items():
+            self.shell.say(f"warning: {name}: {target} at {url} is not reachable yet; starting anyway")
+
     def start_one(self, name: str, env: dict[str, str] | None = None) -> None:
         env = env if env is not None else self.write_env(name)
+        self.wait_for_remotes(name)
         instance = self.host.services[name]
         if instance.runtime == "docker":
             runtime.require_docker(self.shell)
@@ -254,8 +304,15 @@ class Manager:
         except DeployError as error:
             failures.append(f"{name}: rollback failed: {error}")
 
+    def _library_problems(self, selected: list[str]) -> tuple[list[str], list[str]]:
+        needed = {library for name in selected for library in self.host.services[name].spec.libraries}
+        return installer.check_libraries(self.registry, needed)
+
     def preflight(self, selected: list[str]) -> None:
         errors, warnings = validate_host(self.host)
+        library_errors, library_warnings = self._library_problems(selected)
+        errors += library_errors + installer.check_python(self.shell, self.host, selected)
+        warnings += library_warnings
         for warning in warnings:
             self.shell.say(f"warning: {warning}")
         if errors:
@@ -265,7 +322,11 @@ class Manager:
 
     def validate(self, names: list[str] | None) -> tuple[list[str], list[str]]:
         errors, warnings = validate_host(self.host)
-        for name in self.select(names):
+        selected = self.select(names)
+        library_errors, library_warnings = self._library_problems(selected)
+        errors += library_errors + installer.check_python(self.shell, self.host, selected)
+        warnings += library_warnings
+        for name in selected:
             resolved = self.resolve(name)
             errors += resolved.errors
             warnings += resolved.warnings

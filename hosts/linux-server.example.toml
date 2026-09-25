@@ -1,22 +1,23 @@
-# A Linux server (no sound card) running the "thinking" services. Audio lives on other machines,
-# so Brain reaches the microphone and speaker through [remote].
+# A server (no sound card) running the "thinking" services. Audio lives on other machines, so Brain reaches
+# the microphone and speaker through [remote]. The same file works on Windows: change os to "windows".
+# ai-agent needs Python 3.12+ (Ubuntu 24.04 has it; Raspberry Pi OS Bookworm does not: tool refuses to install it).
+#   python3 oblivion.py deploy --host linux-server --system-deps
 [host]
 name = "linux-server"
 os = "linux"
-workdir = "/opt/oblivion"
-bind = "0.0.0.0"
-secrets = "secrets/linux-server.env"    # holds STT__OPENAI_API_KEY=...
+workdir = "~/oblivion"                   # a normal user can write here; for /opt/oblivion create it first and chown it
+bind = "127.0.0.1"                       # only Brain (here) calls these services; no authentication, so do not expose them
+secrets = "secrets/linux-server.env"     # STT__OPENAI_API_KEY=..., AI_AGENT__GROQ_API_KEY=..., AI_AGENT__GOOGLE_API_KEY=...
+# python = "python3.12"                  # when the default python3 is older than 3.12
 
 [services.brain]
 [services.ai-agent]                      # its LLM keys go in the secrets file as AI_AGENT__GROQ_API_KEY=...
 [services.stt]
-runtime = "docker"                       # optional: run this one in a container
 [services.stt.env]
 STT_ENGINE = "openai"
 STT_LANGUAGE = "en"
-
 [services.tts]
-runtime = "docker"
+# Docker is optional per service (runtime = "docker") but has not been exercised yet; native needs nothing extra.
 
 [remote]
 microphone = "http://192.168.1.20:8000"  # the Windows PC

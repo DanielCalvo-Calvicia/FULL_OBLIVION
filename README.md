@@ -14,6 +14,7 @@ services.toml                              catalogue: repo, port, requirements, 
 docs/DEPLOYMENT.md                         the deployment manual (start here)
 hosts/<machine>.toml                       what runs on ONE machine (copy an *.example.toml)
 secrets/<machine>.env                      that machine's secrets (git-ignored)
+wheels/                                    the shared-logging wheel, so a fresh machine needs no workspace (scripts/bundle_shared_logging.py)
 docker/service.Dockerfile                  generic image, used only for services set to runtime = "docker"
 tests/                                     pytest (real git repos and real processes, no network)
 legacy/                                    the previous Compose-based deployment, kept for reference
@@ -82,10 +83,16 @@ Rules the tool applies for you:
 * A consumer's base URLs are generated: Brain gets `STT_BASE_URL=http://127.0.0.1:8001` for a local STT and the `[remote]`
   URL otherwise. `validate` fails when a required service is neither local nor remote.
 * Deployment order follows dependencies (what others consume starts first, stops last).
+* Before starting a service the tool waits up to `--remote-wait` seconds (default 120, `0` = off) for the required services
+  listed in `[remote]` to be healthy. Brain exits if microphone, STT, TTS or speaker are not available in its own
+  preflight and nothing restarts it, so this keeps a machine that boots first (autostart, `update`) from leaving Brain dead.
+* `validate` checks `[remote]` URLs are well formed, that every library the services need has a usable source, and
+  that the Python is new enough; it warns when ai-agent has no LLM key.
 * The services have **no authentication**. `bind = "0.0.0.0"` exposes them to the whole network; keep them on a trusted LAN.
 
 Ready-made examples in `hosts/`: `all-in-one`, `windows-audio` (microphone+speaker), `linux-server`
-(brain/stt/tts, audio elsewhere), `raspberry-audio`, `test-branch` (a parallel copy on other ports and a feature branch).
+(brain/ai-agent/stt/tts, audio elsewhere), `raspberry-audio`, `raspberry-stepper` (only the stepper, real GPIO),
+`test-branch` (a parallel copy on other ports and a feature branch).
 
 ## Code and branches
 
@@ -149,11 +156,17 @@ Audio services (microphone, speaker) need the logged-in user's sound devices, he
 | | Windows | Linux | Raspberry Pi |
 |---|---|---|---|
 | Runtime | native; Docker cannot reach the sound card (validation refuses `docker` for audio services) | native or Docker | native (audio) or Docker |
-| Requirements file | `requirements.windows.txt` | `requirements.linux.txt` | as Linux |
+| Requirements file | `requirements.windows.txt` | `requirements.linux.txt` | as Linux (`raspberry` in `services.toml` overrides it: the stepper takes its GPIO file only here) |
 | Missing file | falls back to the other OS's file with a warning (microphone and STT only have a Windows file today) | | |
-| System packages | – | `oblivion deploy --system-deps` runs `apt-get install` for what a service needs (PortAudio, espeak, ...) | same |
+| System packages | – | `oblivion deploy --system-deps` runs `apt-get update` once, then `apt-get install` for what a service needs (PortAudio, libsndfile, espeak, ...) | same |
 | Boot | scheduled task at logon | systemd user unit | systemd user unit |
-| Python | 3.11+ (`py -3` is found) | 3.11+ (`python3`) | Bookworm ships 3.11: `sudo apt install python3 python3-venv git` |
+| Python | 3.11+ (`py -3` is found); ai-agent needs 3.12+ | 3.11+ (`python3`); ai-agent needs 3.12+ | Bookworm ships 3.11: `sudo apt install python3 python3-venv git`. **ai-agent does not install on 3.11**: run it on another machine |
+
+`services.toml` can declare `min_python` per service; `validate` and `deploy` refuse a machine whose Python is older, before
+cloning or installing anything. A Raspberry Pi is recognised from what the board reports (`/proc/device-tree/model`,
+`/proc/cpuinfo`), not from the CPU architecture; set `os = "raspberry"` in the host file to force it.
+
+**Fresh machine?** Follow `docs/DEPLOYMENT.md` section 3.1 (Python, git, firewall, the clone-and-deploy commands).
 
 ## Shared libraries
 
@@ -163,7 +176,11 @@ The services import `shared_logging`, which is not inside any service repo (it h
 independent repos have no siblings. The contracts library is bundled inside every service (`vendor/*.whl`), so nothing
 is needed for it.
 
-**Before deploying to a machine without the workspace, give `shared-logging` a `git` or `wheel_dir` source.**
+Sources are tried in that order (`path`, then `wheel_dir`, then `git`) and the first usable one wins. The registry
+lists `path = "../shared-logging"` (a development machine installs the live source) and `wheel_dir = "wheels"`,
+a wheel committed in this repository, so **a fresh machine that only cloned this repository just works**. After
+changing shared-logging run `scripts/bundle_shared_logging.py` and commit the new wheel (`validate` warns when the
+wheel is older than the checkout).
 
 ## Docker (optional per service)
 

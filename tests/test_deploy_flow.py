@@ -165,3 +165,17 @@ def test_stop_is_idempotent_and_frees_the_port(platform):
     assert [state for _, state, _ in manager.status(None, False)] == ["stopped", "stopped"]
     with pytest.raises(OSError):
         platform.get("producer", "/health")
+
+
+def test_the_generated_env_file_is_restricted_to_its_owner(platform, monkeypatch):
+    """It holds the API keys, so on Linux/Pi nobody else on the machine may read it."""
+    modes: dict[str, int] = {}
+    original = Path.chmod
+
+    def spy(self, mode, *args, **kwargs):
+        modes[self.name] = mode
+        return original(self, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "chmod", spy)
+    platform.manager().write_env("producer")
+    assert modes.get(".env") == 0o600

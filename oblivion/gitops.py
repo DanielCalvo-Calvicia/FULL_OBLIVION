@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .config import DeployError
+from .envfile import GENERATED_MARK
 from .shell import Shell
 
 
@@ -35,12 +36,25 @@ def is_dirty(shell: Shell, repo: Path) -> bool:
     return bool(result.stdout.strip())
 
 
-def restore_bytecode(shell: Shell, repo: Path) -> None:
-    """Some service repos track ``__pycache__/*.pyc``; running them rewrites those files. That is not a local edit."""
+def _is_generated_env(repo: Path, relative: str) -> bool:
+    """The ``.env`` this tool wrote (the stepper repo tracks a ``.env``, which the deploy overwrites)."""
+    if relative != ".env":
+        return False
+    try:
+        return (repo / relative).read_text(encoding="utf-8", errors="ignore").startswith(GENERATED_MARK)
+    except OSError:
+        return False
+
+
+def restore_generated(shell: Shell, repo: Path) -> None:
+    """Files that running or deploying a service rewrites are not local edits: tracked ``__pycache__/*.pyc``
+    and a tracked ``.env`` that this tool generated. They are put back, so real edits stay the only thing refused."""
     out = _git(shell, repo, "ls-files", "-m", "-z", check=False, mutating=False).stdout
-    cached = [p for p in out.split("\0") if p.endswith(".pyc") or "__pycache__/" in p]
-    if cached and not shell.dry_run:
-        _git(shell, repo, "checkout", "--quiet", "--", *cached)
+    generated = [
+        p for p in out.split("\0") if p.endswith(".pyc") or "__pycache__/" in p or _is_generated_env(repo, p)
+    ]
+    if generated and not shell.dry_run:
+        _git(shell, repo, "checkout", "--quiet", "--", *generated)
 
 
 def _has_remote_branch(shell: Shell, repo: Path, ref: str) -> bool:
@@ -62,7 +76,7 @@ def sync(shell: Shell, url: str, repo: Path, ref: str, *, force: bool = False) -
         remote = _git(shell, repo, "remote", "get-url", "origin", check=False, mutating=False).stdout.strip()
         if remote and remote != url:
             shell.say(f"note: {repo.name} origin is {remote}, registry says {url}; keeping origin")
-        restore_bytecode(shell, repo)
+        restore_generated(shell, repo)
         if is_dirty(shell, repo) and not force:
             raise DeployError(
                 f"{repo} has local modifications; commit or discard them, or pass --force to overwrite"

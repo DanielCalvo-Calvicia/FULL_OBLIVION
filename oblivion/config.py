@@ -7,6 +7,7 @@ import tomllib
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 RUNTIMES = ("native", "docker")
 
@@ -41,6 +42,8 @@ class ServiceSpec:
     folder: str | None = None  # clone folder name; default <name>_microservice
     host_var: str = "SERVICE_HOST"  # env var the service reads its bind address from
     port_var: str = "SERVICE_PORT"  # env var the service reads its port from
+    min_python: tuple[int, int] | None = None  # oldest Python the service's pinned dependencies install on
+    require_any: tuple[str, ...] = ()  # at least one of these should be set, or the service cannot work
 
     @property
     def repo_dir(self) -> str:
@@ -103,12 +106,15 @@ def detect_os() -> tuple[str, bool]:
     system = platform.system().lower()
     if system == "windows":
         return "windows", False
-    raspberry = False
-    try:
-        raspberry = "raspberry" in Path("/proc/device-tree/model").read_text(errors="ignore").lower()
-    except OSError:
-        raspberry = platform.machine().lower() in {"armv6l", "armv7l", "aarch64"} and system == "linux"
-    return "linux", raspberry
+    # The board says so itself. The CPU architecture alone proves nothing: an ARM server is not a Raspberry Pi
+    # (it has no GPIO), and a wrong guess picks the wrong requirements file.
+    for source in ("/proc/device-tree/model", "/proc/cpuinfo"):
+        try:
+            if "raspberry pi" in Path(source).read_text(errors="ignore").lower():
+                return "linux", True
+        except OSError:
+            continue
+    return "linux", False
 
 
 # --------------------------------------------------------------------------- loading
@@ -122,6 +128,11 @@ def _read_toml(path: Path) -> dict[str, Any]:
         raise DeployError(f"file not found: {path}") from error
     except tomllib.TOMLDecodeError as error:
         raise DeployError(f"{path}: invalid TOML: {error}") from error
+
+
+def _version(text: str) -> tuple[int, int]:
+    major, _, minor = str(text).partition(".")
+    return int(major), int(minor or 0)
 
 
 def load_registry(path: Path) -> Registry:
@@ -151,6 +162,8 @@ def load_registry(path: Path) -> Registry:
                 folder=raw.get("folder"),
                 host_var=raw.get("host_var", "SERVICE_HOST"),
                 port_var=raw.get("port_var", "SERVICE_PORT"),
+                min_python=_version(raw["min_python"]) if "min_python" in raw else None,
+                require_any=tuple(raw.get("require_any", ())),
             )
         except KeyError as error:
             raise DeployError(f"{path}: service {name!r} is missing {error}") from error
@@ -258,7 +271,12 @@ def validate_host(host: Host) -> tuple[list[str], list[str]]:
                 warnings.append(f"{name}: optional service {target!r} is neither local nor in [remote]; it will not be configured")
             else:
                 errors.append(f"{name} needs {target!r}: add it to [services] (this machine) or to [remote] (another machine)")
-    for target in host.remote:
+    for target, url in host.remote.items():
+        parsed = urlsplit(url)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            errors.append(f"[remote] {target}: {url!r} is not a URL like http://192.168.1.20:8000")
+        elif parsed.hostname in ("localhost", "127.0.0.1", "::1"):
+            warnings.append(f"[remote] {target}: {url} points at this machine; a service on another machine needs its own address")
         if target in host.services:
             warnings.append(f"{target!r} is both local and in [remote]; the local one is used")
     if not host.services:

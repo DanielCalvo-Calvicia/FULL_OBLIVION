@@ -70,7 +70,9 @@ wheel in its own `vendor/` folder and its requirements file installs it.
 > Use route C to run uncommitted code.
 
 Branches today: every repo (including `stepper_microservice` and this one) works on `feature_ai_claude`,
-which is the default of `launch.py`.
+which is the default of `launch.py` **and of `services.toml`**. Do not deploy `main` yet: it does not carry the
+vendored `contracts` wheel every service's requirements file points at, so the install fails. Change the default
+in `services.toml` to `main` once the branches are merged.
 
 ### Route A: one command
 
@@ -124,20 +126,73 @@ Sections 4 to 6 are exactly this route. It is also what you use to debug one ser
 
 | | Windows 11 | Linux | Raspberry Pi OS (Bookworm) |
 |---|---|---|---|
-| Python | 3.14 is what the workspace uses and tests run on; the deploy tool itself needs 3.11+ | 3.11+ (`python3`, `python3-venv`) | 3.11 ships with Bookworm (`sudo apt install python3 python3-venv git`) |
+| Python | 3.14 is what the workspace uses and tests run on; the deploy tool itself needs 3.11+; **ai-agent needs 3.12+** | 3.11+ (`python3`, `python3-venv`); **ai-agent needs 3.12+** | 3.11 ships with Bookworm (`sudo apt install python3 python3-venv git`): fine for everything **except ai-agent** |
 | git | required for routes A and B | same | same |
 | Sound | a working default input and output | ALSA/PortAudio | USB microphone, speaker or I2S DAC |
-| System packages | none | `libportaudio2 portaudio19-dev` (microphone, speaker); `espeak espeak-data libespeak1` (tts) | same as Linux |
+| System packages | none | `libportaudio2 portaudio19-dev` (microphone, speaker); `libsndfile1` (speaker); `espeak espeak-data libespeak1` (tts) | same as Linux |
 | Voices | Windows SAPI voices (Helena is Spanish, Zira is English) | espeak | espeak |
 | Disk / network | the local Whisper model downloads once (hundreds of MB); LLM and OpenAI calls need internet | | |
 
 Linux/Pi system packages are installed by `--system-deps` (uses `sudo`) or by hand:
-`sudo apt-get install -y libportaudio2 portaudio19-dev espeak espeak-data libespeak1`.
+`sudo apt-get update && sudo apt-get install -y libportaudio2 portaudio19-dev libsndfile1 espeak espeak-data libespeak1`
+(`--system-deps` runs `apt-get update` once first: a freshly imaged machine has empty package lists).
 
-Python 3.14 caveats seen in this workspace: `fastapi==0.111.0` / `pydantic==2.7.4` have no 3.14 wheels
-(Windows stepper requirements were relaxed to lower bounds for that reason); `ai-agent`'s pins were captured
-on 3.14 and have **not** been tried on 3.11 (Raspberry Pi). If the ai-agent install fails on an older Python,
-run ai-agent on the Windows/Linux machine that has 3.14 and reach it from the Pi through `[remote]`.
+Python versions, verified by installing every service into fresh virtual environments (2026-09-25):
+
+| Python | brain, microphone, stt, tts, speaker, stepper | ai-agent |
+|---|---|---|
+| 3.14 (Windows) | installs | installs |
+| 3.11 (Raspberry Pi OS Bookworm's version) | installs | **fails**: the pinned `ai-sdk-python` requires Python 3.12+ |
+
+So ai-agent cannot run on a stock Raspberry Pi OS Bookworm. The tool refuses **before installing anything**
+(`validate` and `deploy`: "ai-agent needs Python 3.12+ ..."). Run ai-agent on a Windows PC or a Linux server with
+Python 3.12+ (Ubuntu 24.04 ships it) and reach it from the Pi through `[remote]`, or install a newer Python and set
+`[host] python = "<path>"`. `fastapi==0.111.0` / `pydantic==2.7.4` have no 3.14 wheels (the Windows stepper
+requirements use lower bounds for that reason).
+
+### 3.1 A fresh machine, step by step
+
+Applies to every machine, whichever services it runs. Nothing from the development workspace is needed: the
+service repositories are public on GitHub (no credentials), and `shared-logging` ships inside this repository
+(`wheels/`).
+
+**Windows 11**
+
+1. Install Python 3.12 or newer (python.org; tick "Add python.exe to PATH" and keep the `py` launcher) and
+   Git for Windows.
+2. A machine with the microphone: Settings, Privacy & security, Microphone, allow desktop apps.
+3. Run the tool as `py -3 oblivion.py ...`. A new Windows blocks `.ps1` scripts (execution policy), so
+   `oblivion.ps1` may refuse to run.
+4. A service listening on `0.0.0.0` makes Windows Defender Firewall ask on its first start: allow private
+   networks. Or open the ports beforehand in an elevated PowerShell, for example for the microphone and speaker:
+   `New-NetFirewallRule -DisplayName OBLIVION -Direction Inbound -Protocol TCP -LocalPort 8000,8003 -Action Allow -Profile Private`
+
+**Linux / Raspberry Pi OS**
+
+```bash
+sudo apt update && sudo apt install -y git python3 python3-venv     # the tool installs the rest with --system-deps
+sudo usermod -aG audio $USER                                        # microphone/speaker machines; log in again
+```
+
+**Every machine**
+
+```bash
+git clone -b feature_ai_claude https://github.com/DanielCalvo-Calvicia/FULL_OBLIVION.git oblivion-deploy
+cd oblivion-deploy
+cp hosts/<closest example>.example.toml hosts/<machine>.toml    # Windows: copy; set [host] secrets = "secrets/<machine>.env"
+cp secrets/example.env secrets/<machine>.env                    # fill in only what runs on THIS machine
+chmod 600 secrets/<machine>.env                                 # Linux/Pi
+python3 oblivion.py doctor   --host <machine>                   # Windows: py -3
+python3 oblivion.py validate --host <machine>
+python3 oblivion.py deploy   --host <machine> --system-deps     # --system-deps: Linux/Pi only (sudo apt)
+python3 oblivion.py status   --host <machine> --remote
+python3 oblivion.py autostart install --host <machine>
+```
+
+The secrets file is created by hand on every machine and holds only the keys of the services that run there;
+the tool never copies secrets between machines. `doctor` and `validate` change nothing, and `deploy --dry-run`
+prints every command first. The first deploy of a machine takes several minutes (STT and ai-agent pull large
+dependencies).
 
 ## 4. Python virtual environments
 
@@ -181,15 +236,22 @@ python3 -m venv .venv
 adds `RPi.GPIO`, which only builds on a Raspberry Pi.
 
 `shared-logging` has no repository of its own yet. Where the `-e ../shared-logging` line cannot resolve
-(a machine without the workspace), install it after the requirements from a checkout or a built wheel:
+(a machine without the workspace), install it after the requirements from the wheel that ships in this
+repository's `wheels/` folder, or from a checkout:
 
 ```bash
 .venv/bin/python -m pip install /path/to/shared-logging
 ```
 
-The deploy tool does this for you from `services.toml` `[libraries.shared-logging]` (`path`, `git` or
-`wheel_dir`). **Before deploying to a machine that does not have the workspace, give that library a `git` or
-`wheel_dir` source.**
+The deploy tool does this for you from `services.toml` `[libraries.shared-logging]`, trying in order `path`
+(the workspace checkout, so a development machine always installs the current source), `wheel_dir`
+(`wheels/`, committed in this repository, so a fresh machine that only cloned it works) and `git` (for when the
+library has its own repository). `validate` and `deploy` fail before cloning anything when none is usable.
+After changing shared-logging, refresh the wheel and commit it (`validate` warns when it is older than the checkout):
+
+```powershell
+brain_microservice\windows\Scripts\python.exe deployment\scripts\bundle_shared_logging.py
+```
 
 ### 4.3 Checking a venv
 
@@ -302,8 +364,8 @@ Speaker has no authentication (the old token option was removed).
 |---|---|---|
 | `GROQ_API_KEY`, `GOOGLE_API_KEY` | empty | **secrets** (section 5.2). Which keys you need depends on the profile below |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `MISTRAL_API_KEY`, `COHERE_API_KEY`, `GITHUB_PAT` | empty | **secrets**, only for models on those providers |
-| `GROQ_URL` | empty | **required with the default profile.** Public OpenAI-compatible endpoint, `https://api.groq.com/openai/v1` (not a secret; already in the all-in-one example and in the file `launch.py` generates) |
-| `GOOGLE_URL` | empty | **required with the default profile.** `https://generativelanguage.googleapis.com/v1beta/openai/` |
+| `GROQ_URL` | empty | **required with the default profile.** Public OpenAI-compatible endpoint, `https://api.groq.com/openai/v1` (not a secret). Set by `services.toml` for every host file, so you normally do nothing |
+| `GOOGLE_URL` | empty | **required with the default profile.** `https://generativelanguage.googleapis.com/v1beta/openai/` (also set by `services.toml`) |
 | `MISTRAL_URL`, `COHERE_URL`, `GITHUB_URL`, `OLLAMA_URL` | empty | base URL of that provider. `OLLAMA_URL` alone is enough to make ai-agent available (local models) |
 | `AI_AGENT_HOST` / `AI_AGENT_PORT` | `0.0.0.0` / `7998` | bind (the deploy tool sets both from the host file) |
 | `AI_AGENT_RELOAD` | `1` in `.env.example`, **`0` set by the deploy tool** | auto-reload is for development only; never `1` in a deployed service |
@@ -441,8 +503,28 @@ brain_microservice\windows\Scripts\python.exe -m pytest deployment\tests -q     
 
 Give each machine its own host file listing only what runs there, and describe the rest under `[remote]`.
 Examples in `hosts/`: `all-in-one`, `windows-audio` (microphone and speaker on a PC), `linux-server`
-(brain, ai-agent, stt, tts; audio and stepper elsewhere), `raspberry-audio`, `test-branch` (a second copy on
-other ports and a feature branch, without touching the running one).
+(brain, ai-agent, stt, tts; audio and stepper elsewhere), `raspberry-audio`, `raspberry-stepper` (only the stepper,
+with the real GPIO driver), `test-branch` (a second copy on other ports and a feature branch, without touching the
+running one).
+
+A typical three-machine robot (follow 3.1 on each):
+
+| Machine | Runs | Host file to copy | Secrets file needs |
+|---|---|---|---|
+| Windows PC with the sound card | microphone, speaker | `windows-audio` | nothing |
+| Server (Windows or Linux, Python 3.12+) | brain, ai-agent, stt, tts | `linux-server` | `STT__OPENAI_API_KEY`, `AI_AGENT__GROQ_API_KEY`, `AI_AGENT__GOOGLE_API_KEY` |
+| Raspberry Pi wired to the motors | stepper | `raspberry-stepper` | nothing |
+
+The server's `[remote]` lists the PC's microphone and speaker and the Pi's stepper by IP address or host name; the
+PC and the Pi need `bind = "0.0.0.0"` and open firewall ports (8000, 8003, 8005).
+
+**Start order across machines.** Brain checks microphone, STT, TTS and speaker when it starts and, if they are not
+all available within `STARTUP_PREFLIGHT_TIMEOUT_SECONDS` (60), **it exits and nothing restarts it** (verified: it logs
+`StartupPreflightError` and never opens its port). So the tool waits for you: before starting a service it waits up to
+`--remote-wait` seconds (default 120, `0` = do not wait) for the required services that live on other machines and are
+listed in `[remote]`, and prints which ones it is waiting for. This also covers boot (`autostart` runs
+`oblivion start`) and `update`. It does not wait for the optional stepper. If the other machines take longer to
+boot, raise `--remote-wait`; if Brain is dead anyway, `oblivion restart --host <server> --service brain`.
 
 Rules of thumb:
 
@@ -452,8 +534,10 @@ Rules of thumb:
   allow those ports (8000, 8003, 8005, ...). There is no authentication: trusted LAN only.
 * Brain only needs URLs: `[remote] ai-agent = "http://192.168.1.10:7998"` and so on. `validate` fails when a
   required service is neither local nor remote (the stepper is the only optional one).
-* The mandatory preflight makes Brain wait for the four audio/speech services, so start those machines first
-  or raise `STARTUP_PREFLIGHT_TIMEOUT_SECONDS`.
+* The mandatory preflight makes Brain wait for the four audio/speech services (and give up, see above), so
+  start those machines first, keep the tool's `--remote-wait`, or raise `STARTUP_PREFLIGHT_TIMEOUT_SECONDS`.
+* `validate` checks the `[remote]` URLs are well formed (`http://host:port`) and warns about ones that point
+  at this same machine.
 
 ## 9. Operating it
 
@@ -488,10 +572,11 @@ py -3 oblivion.py autostart install --host mypc             # systemd user unit,
 | TTS speaks the wrong language | Windows default voice is Spanish: set `TTS_VOICE_NAME=Zira` (already the default) or another installed English voice |
 | Robot answers its own voice | speakers and microphone in the same room: use headphones |
 | Stepper install fails on Python 3.14 with a Rust/`pydantic-core` error | old exact pins; the Windows requirements file now uses lower bounds. Update the stepper code |
-| `deploy` says `library 'shared-logging' ... does not exist` | the machine has no workspace: set a `git` or `wheel_dir` source in `services.toml` |
+| `deploy` / `validate` says `library 'shared-logging' is not available on this machine` | neither the workspace checkout nor `wheels/shared_logging-*.whl` exists: the clone of this repository is incomplete (`git status`, `git pull`), or run `scripts/bundle_shared_logging.py` on a machine that has the workspace and commit the wheel |
 | `update` refuses ("local changes") | edits inside a clone under `<workdir>/services`; commit or discard them, or `--force` |
 | Health check times out on first run | dependency install or the local Whisper download is slow: `--health-timeout 600` (launch.py) |
-| Port already in use | another copy is running (`launch.py status` / `stop`) or change `port =` in the host file |
+| `validate`/`deploy` says `ai-agent needs Python 3.12+` | the interpreter that builds the venv is older (Raspberry Pi OS Bookworm has 3.11): use a newer Python via `[host] python`, or run ai-agent on another machine and list it under `[remote]` |
+| Brain is not running after a boot or a deploy, its log ends with `StartupPreflightError` | microphone, STT, TTS or speaker was not available in time. Check them (`status --remote`), then `restart --service brain`. The tool waits for remote ones (`--remote-wait`, section 8); raise it if the other machines boot slowly || Port already in use | another copy is running (`launch.py status` / `stop`) or change `port =` in the host file |
 | Deployed code lacks a recent change | routes A and B deploy committed code only (section 2) |
 
 ## 11. Known limits
@@ -499,7 +584,15 @@ py -3 oblivion.py autostart install --host mypc             # systemd user unit,
 * Docker, systemd units, Windows scheduled tasks and real Raspberry Pi hardware have not been exercised by
   the deploy tool. Docker cannot reach a sound card on Windows, and the generic image starts `main.py`, so it
   does not fit ai-agent (`composition_root/main.py`); run ai-agent natively.
-* `ai-agent` on Python 3.11 (Pi) and on Linux is untested; sessions are in memory only.
+* `ai-agent` needs Python 3.12+ (verified: it does not install on 3.11, so not on stock Raspberry Pi OS
+  Bookworm). It has been installed on Windows with 3.14 and started, but never on Linux; sessions are in memory only.
+* What was verified on a fresh layout (2026-09-25, Windows 11, real `git clone` and `pip install` into new virtual
+  environments, services started headless on spare ports): the install and start of all seven services on Python
+  3.14, and the install of everything but ai-agent on Python 3.11 with the Linux file selection. **Not** verified:
+  a real Linux or Raspberry Pi (apt packages, `--system-deps`, `RPi.GPIO` with the motors), systemd autostart,
+  Windows scheduled tasks, Docker, cross-machine traffic and the firewall rules above.
+* The Raspberry Pi stepper uses `RPi.GPIO` 0.7.1, written for Pi 1 to 4. A Pi 5 needs a different GPIO library
+  (`rpi-lgpio` is the usual drop-in): unverified here, decide before wiring one.
 * The real end-to-end suite (`test_real_pipeline.py`) has not yet completed a full run: it needs valid LLM
   keys and an output device that PortAudio can open.
 * No service-to-service authentication exists (speaker's was removed). Do not expose these ports to the internet.
