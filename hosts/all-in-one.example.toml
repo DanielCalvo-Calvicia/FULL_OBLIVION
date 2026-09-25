@@ -1,0 +1,23 @@
+# One machine runs every service: the simplest setup, good for development on a PC and for a
+# production-like test of the whole flow.
+# Copy to hosts/<name>.toml (real host files are git-ignored) and adjust.
+#   python oblivion.py deploy --host all-in-one
+# Secrets (LLM provider keys, OpenAI key for STT) go in the file named by [host] secrets, never here.
+# See docs/DEPLOYMENT.md for every variable.
+[host]
+name = "all-in-one"
+os = "auto"                    # auto | windows | linux | raspberry
+workdir = "~/oblivion"         # clones, virtualenvs, logs and state live here
+bind = "127.0.0.1"             # 0.0.0.0 only if another machine must reach these services
+secrets = "secrets/all-in-one.env"
+
+[services.microphone]
+[services.stt]
+[services.tts]
+[services.speaker]
+[services.ai-agent]            # decides the reply and arm movements; needs LLM keys in the secrets file
+[services.ai-agent.env]        # public OpenAI-compatible endpoints of the providers in config/step_models.json (not secrets)
+GROQ_URL = "https://api.groq.com/openai/v1"
+GOOGLE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+[services.stepper]             # mock hardware unless this is the Raspberry Pi wired to the motors
+[services.brain]               # Brain finds the other services on 127.0.0.1 by itself

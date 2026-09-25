@@ -1,0 +1,24 @@
+# A Linux server (no sound card) running the "thinking" services. Audio lives on other machines,
+# so Brain reaches the microphone and speaker through [remote].
+[host]
+name = "linux-server"
+os = "linux"
+workdir = "/opt/oblivion"
+bind = "0.0.0.0"
+secrets = "secrets/linux-server.env"    # holds STT__OPENAI_API_KEY=...
+
+[services.brain]
+[services.ai-agent]                      # its LLM keys go in the secrets file as AI_AGENT__GROQ_API_KEY=...
+[services.stt]
+runtime = "docker"                       # optional: run this one in a container
+[services.stt.env]
+STT_ENGINE = "openai"
+STT_LANGUAGE = "en"
+
+[services.tts]
+runtime = "docker"
+
+[remote]
+microphone = "http://192.168.1.20:8000"  # the Windows PC
+speaker = "http://192.168.1.20:8003"
+stepper = "http://192.168.1.30:8005"     # the Raspberry Pi with the motors (optional: without it the arms do not move)

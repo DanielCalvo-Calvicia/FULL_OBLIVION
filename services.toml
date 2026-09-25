@@ -1,0 +1,111 @@
+# The catalogue of OBLIVION services: what each one is and how it is installed and run.
+#
+# This file describes SERVICES, not machines. Which services run on which machine, which branch,
+# and every per-machine setting lives in hosts/<machine>.toml. To add a service to the platform,
+# add a [services.<name>] table here (git URL, port, entry point, requirements files, ...).
+
+# Shared libraries the services import but that are not inside the service repos. Each machine
+# needs them installed into the service's virtualenv. Choose ONE source per library:
+#   path      a local checkout (relative paths are relative to this file)
+#   git       a git URL, optionally with @ref, e.g. https://github.com/you/shared-logging.git@main
+#   wheel_dir a folder with pre-built wheels
+[libraries.shared-logging]
+path = "../shared-logging"
+# git = "https://github.com/DanielCalvo-Calvicia/shared-logging.git@main"
+
+# ---------------------------------------------------------------------------------------------
+# Common keys of [services.<name>]
+#   git               repository to clone
+#   branch            default branch/tag/commit (a host file or --branch can override it)
+#   port              default HTTP port (SERVICE_PORT)
+#   health / ready    endpoints checked after start ("ready" is optional)
+#   entry             script started with the service's virtualenv python
+#   requirements      requirements file per OS family (linux is also used by Raspberry Pi);
+#                     when the OS has no file, the other one is used with a warning
+#   libraries         shared libraries to install after the requirements
+#   apt               Debian/Raspberry Pi OS packages needed by the service (--system-deps)
+#   audio             needs a sound device: cannot run in Docker on Windows
+#   consumes          services this one calls -> env var that receives their base URL
+#   optional_consumes consumed services that may be absent
+#   [env]             default environment values for this service
+#   [[require]]       env key that must be set (optionally only when other keys have some value)
+# ---------------------------------------------------------------------------------------------
+
+[services.brain]
+git = "https://github.com/DanielCalvo-Calvicia/brain_microservice.git"
+branch = "main"
+port = 7999
+libraries = ["shared-logging"]
+requirements = { windows = "requirements.windows.txt", linux = "requirements.linux.txt" }
+consumes = { microphone = "MICROPHONE_BASE_URL", stt = "STT_BASE_URL", tts = "TTS_BASE_URL", speaker = "SPEAKER_BASE_URL", ai-agent = "AI_AGENT_BASE_URL", stepper = "STEPPER_BASE_URL" }
+# Brain starts without the stepper (arm movement is then skipped) and answers with an apology while
+# ai-agent is unreachable, but a production layout should run both.
+optional_consumes = ["stepper"]
+
+[services.microphone]
+git = "https://github.com/DanielCalvo-Calvicia/microphone_microservice.git"
+branch = "main"
+port = 8000
+ready = "/available"
+audio = true
+libraries = ["shared-logging"]
+requirements = { windows = "requirements.windows.txt" }
+apt = ["libportaudio2", "portaudio19-dev"]
+
+[services.stt]
+git = "https://github.com/DanielCalvo-Calvicia/stt_microservice.git"
+branch = "main"
+port = 8001
+ready = "/available"
+libraries = ["shared-logging"]
+requirements = { windows = "requirements.windows.txt" }
+[services.stt.env]
+STT_ENGINE = "openai"
+[[services.stt.require]]
+key = "OPENAI_API_KEY"
+when = { STT_ENGINE = "openai" }
+
+[services.tts]
+git = "https://github.com/DanielCalvo-Calvicia/tts_microservice.git"
+branch = "main"
+port = 8002
+ready = "/available"
+libraries = ["shared-logging"]
+requirements = { windows = "requirements.windows.txt", linux = "requirements.linux.txt" }
+apt = ["espeak", "espeak-data", "libespeak1"]
+
+[services.speaker]
+git = "https://github.com/DanielCalvo-Calvicia/speaker_microservice.git"
+branch = "main"
+port = 8003
+ready = "/available"
+audio = true
+libraries = ["shared-logging"]
+requirements = { windows = "requirements.windows.txt", linux = "requirements.linux.txt" }
+apt = ["libportaudio2", "portaudio19-dev"]
+
+[services.stepper]
+git = "https://github.com/DanielCalvo-Calvicia/stepper_microservice.git"
+branch = "main"
+port = 8005
+libraries = ["shared-logging"]
+requirements = { windows = "requirements.windows.txt", linux = "requirements.linux.txt" }
+[services.stepper.env]
+MOCK_HARDWARE = "true"   # real GPIO only on the machine that drives the motors: override it in that host file
+
+# The decision maker: turns what the user said into a reply and, when asked, an arm movement. It only
+# decides; it never drives hardware. It reads AI_AGENT_HOST/AI_AGENT_PORT (not SERVICE_*), loads its own
+# .env from its folder and needs at least one LLM provider key (see docs/DEPLOYMENT.md, "ai-agent").
+[services.ai-agent]
+git = "https://github.com/DanielCalvo-Calvicia/ai-agent.git"
+branch = "main"
+port = 7998
+ready = "/available"           # reports is_available=false until an LLM provider key or OLLAMA_URL is configured
+folder = "ai-agent"
+entry = "composition_root/main.py"
+host_var = "AI_AGENT_HOST"
+port_var = "AI_AGENT_PORT"
+libraries = ["shared-logging"]
+requirements = { windows = "requirements.txt", linux = "requirements.txt" }
+[services.ai-agent.env]
+AI_AGENT_RELOAD = "0"          # the development auto-reloader has no place in a deployed service

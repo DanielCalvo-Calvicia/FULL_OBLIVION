@@ -1,0 +1,16 @@
+# A Windows PC with the microphone and speakers. Audio services run natively here (Docker cannot
+# reach the sound card on Windows). Brain and STT/TTS run on another machine.
+[host]
+name = "windows-audio"
+os = "windows"
+workdir = "~/oblivion"
+bind = "0.0.0.0"               # Brain on the other machine must reach these two
+secrets = "secrets/windows-audio.env"
+
+[services.microphone]
+[services.microphone.env]
+MICROPHONE_TARGET_KEYWORDS = "usb"      # example: pick the USB microphone
+
+[services.speaker]
+[services.speaker.env]
+SPEAKER_DEVICE_KEYWORDS = "speakers,realtek"
