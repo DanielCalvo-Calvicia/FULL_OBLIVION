@@ -238,9 +238,9 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.linux.txt
 ```
 
-`microphone_microservice` and `stt_microservice` only ship `requirements.windows.txt`; on Linux use that file
-(the deploy tool falls back to it with a warning). `ai-agent` uses `requirements.txt`. The stepper's Linux file
-adds `RPi.GPIO`, which only builds on a Raspberry Pi.
+Every service has a `requirements.linux.txt` except `ai-agent`, which uses `requirements.txt` on both systems. The
+stepper's Linux file adds `RPi.GPIO`, which only builds on a Raspberry Pi. All of them resolve to prebuilt wheels on
+Linux x86_64 and aarch64 (Python 3.12; 3.11 too, except `ai-agent`, which needs 3.12+).
 
 `shared-logging` has no repository of its own yet. Where the `-e ../shared-logging` line cannot resolve
 (a machine without the workspace), install it after the requirements from the wheel that ships in this
@@ -586,9 +586,9 @@ Use **headphones** (the robot would otherwise hear itself). With every service h
 
 `contracts/tests/e2e/test_real_pipeline.py` starts all six services for real (own venv, real Whisper, the TTS
 service's default engine, real playback, real LLM, the stepper in mock mode) and replaces only the **input data**: phrases
-are synthesised with the Windows SAPI voice (`make_speech.py`) and streamed as the microphone's capture. The TTS under test is
+are synthesised with the Windows SAPI voice, or with Piper where pywin32 is missing (Linux; `make_speech.py`) and streamed as the microphone's capture. The TTS under test is
 Piper `en_GB-alan-medium` when its voice file is present in the TTS service's `models/` folder (the `prepare` step fetches it),
-otherwise the pyttsx3 fallback, so SAPI only produces the input. It plays audio out loud and makes LLM
+otherwise the pyttsx3 fallback, so the SAPI/Piper voice only produces the input. It plays audio out loud and makes LLM
 calls, so it is skipped unless asked for. It needs the LLM keys and URLs from section 5 exported in the
 environment (never in a file) and a working output device.
 

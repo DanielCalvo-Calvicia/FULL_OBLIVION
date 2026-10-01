@@ -69,7 +69,7 @@ port = 8000
 ready = "/available"
 audio = true
 libraries = ["shared-logging"]
-requirements = { windows = "requirements.windows.txt" }
+requirements = { windows = "requirements.windows.txt", linux = "requirements.linux.txt" }
 apt = ["libportaudio2", "portaudio19-dev"]
 dotenv = false   # microphone_microservice has no python-dotenv yet; set true once its main_flow/http.py loads the .env
 
@@ -79,7 +79,7 @@ branch = "feature_ai_claude_2"
 port = 8001
 ready = "/available"
 libraries = ["shared-logging"]
-requirements = { windows = "requirements.windows.txt" }
+requirements = { windows = "requirements.windows.txt", linux = "requirements.linux.txt" }
 [services.stt.env]
 STT_ENGINE = "openai"
 [[services.stt.require]]
