@@ -1,12 +1,15 @@
 # OBLIVION deployment manual
 
+> This is the **reference** manual. For a step-by-step walkthrough (what to type on each machine, in order), read
+> [`USER_GUIDE.md`](USER_GUIDE.md) first.
+
 How to bring the whole robot up like a production environment: what to install, which Python virtual
 environment each service needs, every environment variable and where to fill it, in which order things
 start, how to check that everything is healthy and what to do when it is not.
 
 This manual describes the platform as it is today. Where something has never been run (Docker, systemd,
 scheduled tasks, real Raspberry Pi hardware) it says so. **No value in this file is a secret**: keys always
-go in a machine-local secrets file that is never committed (section 5).
+go in `robot.toml`, the single file of truth, which is never committed (section 5.2).
 
 ## Contents
 
@@ -35,15 +38,17 @@ Brain talks to the stepper. There is no authentication anywhere, so keep every p
 | stt | `stt_microservice` | 8001 | `SERVICE_PORT` | speech to text (OpenAI Whisper API or local faster-whisper) | OpenAI key **or** local model |
 | tts | `tts_microservice` | 8002 | `SERVICE_PORT` | text to speech (Windows SAPI / espeak) | a system voice |
 | speaker | `speaker_microservice` | 8003 | `SERVICE_PORT` | plays audio | a sound output device |
-| ai-agent | `ai-agent` | 7998 | `AI_AGENT_PORT` | decides the reply and arm movements (multi-step LLM pipeline) | an LLM provider key |
+| ai-agent | `ai-agent` | 7998 | `AI_AGENT_PORT` | decides: two agents ("flows") in one service, conversation-flow writes the reply and motion-flow decides the arm movements | an LLM provider key |
 | stepper | `stepper_microservice` | 8005 | `SERVICE_PORT` | drives the two arm motors | Raspberry Pi GPIO, or mock mode |
 | brain | `brain_microservice` | 7999 | `SERVICE_PORT` | orchestrates the voice pipeline | the six above |
 
 `aws_microservice` (Go, port 8080) is not part of the running robot and is not covered here.
 
 The voice flow: microphone → Brain → STT → Brain (accumulates what was said) → ai-agent → Brain → TTS →
-Brain → speaker. When ai-agent asks for an arm movement, Brain sends it to the stepper in the background;
-a stepper failure never silences the spoken reply. If ai-agent is unreachable Brain speaks an apology.
+Brain → speaker. For every utterance Brain first asks ai-agent's motion-flow which arm movements were asked for
+(or which detail is missing: it then speaks that question), then ai-agent's conversation-flow for the reply.
+Brain sends the movements, in order, to the stepper in the background; a stepper failure never silences the spoken
+reply and stops the rest of that sequence. If ai-agent is unreachable Brain speaks an apology.
 
 Library: `shared-logging` is imported by every service. `contracts` needs nothing: each service carries the
 wheel in its own `vendor/` folder and its requirements file installs it.
@@ -53,13 +58,13 @@ wheel in its own `vendor/` folder and its requirements file installs it.
 | Route | Use it when | Code comes from |
 |---|---|---|
 | **A. `launch.py`** | one machine, everything local, you want one command | git (a branch of each repo) |
-| **B. `oblivion.py` + host file** | several machines, per-service branches, Docker for some services, boot autostart | git |
+| **B. `oblivion.py` + `robot.toml`** | one or several machines, per-service branches, Docker for some services, boot autostart | git |
 | **C. By hand from the workspace** | you want to run exactly the files on disk, including uncommitted work | your working folders |
 
 > **The git routes (A and B) deploy what is committed and reachable from the repository URL.** They clone
 > `https://github.com/DanielCalvo-Calvicia/<repo>.git` and check out a branch. Work that only exists as
 > uncommitted changes in your working folders (for example a feature you are still finishing) is **not**
-> deployed by A or B. Commit it first, then either push it or point the host file at your local repo:
+> deployed by A or B. Commit it first, then either push it or point a host file (`hosts/<machine>.toml`) at your local repo:
 >
 > ```toml
 > [services.brain]
@@ -83,9 +88,11 @@ py -3 launch.py logs ai-agent
 py -3 launch.py stop
 ```
 
-The first run creates `hosts/local.toml` and `secrets/local.env` (both git-ignored), asks once for the OpenAI
+**With a `robot.toml`, the launcher uses it** (one machine is picked automatically; `--machine NAME` picks one of several) and
+creates, asks and copies nothing: the layout, settings and keys are that file's. **Without one**, the first run creates
+`hosts/local.toml` and `secrets/local.env` (both git-ignored), asks once for the OpenAI
 key for speech-to-text (or reads `OPENAI_API_KEY`; use `--stt local` to avoid it), copies any LLM provider
-keys that are exported in your environment into the secrets file for ai-agent (`GROQ_API_KEY`,
+keys that are exported in your environment into `secrets/local.env` (the machine-local overlay) for ai-agent (`GROQ_API_KEY`,
 `GOOGLE_API_KEY`, ...; the values are never printed), fetches the code, builds one virtual environment per
 service, starts everything in order and waits until each service is healthy.
 
@@ -100,20 +107,23 @@ py -3 launch.py
 Later runs update to the newest code of the branch (rolling back a service that does not start) and restart.
 `--no-update` only starts. `--dry-run` prints every command. On Linux/Pi add `--system-deps` the first time.
 If `hosts/local.toml` already exists from an older version it is **not** rewritten: add
-`[services.ai-agent]`, `[services.stepper]` and the two URLs of
-section 5.3 by hand, or delete the file and let `launch.py` create it again.
+`[services.ai-agent]` and `[services.stepper]` by hand (the LLM endpoints are preset in `services.toml`), or delete the file
+and let `launch.py` create it again.
 
-### Route B: host files
+### Route B: `robot.toml`
 
 ```powershell
-copy hosts\all-in-one.example.toml hosts\mypc.toml
-copy secrets\example.env secrets\mypc.env          # fill it in (section 5), then set [host] secrets in mypc.toml
-py -3 oblivion.py doctor   --host mypc             # git, python, docker (if used), writable workdir
-py -3 oblivion.py validate --host mypc             # wiring and missing required values, no network
-py -3 oblivion.py plan     --host mypc             # every service, branch and env value with its origin
-py -3 oblivion.py deploy   --host mypc             # fetch code, install, write env, start, health-check
-py -3 oblivion.py status   --host mypc --remote
+copy robot.example.toml robot.toml                  # the layout and every setting and key: sections 5.2 and 8
+py -3 oblivion.py topology                          # the whole robot; checks every machine can find what it needs
+py -3 oblivion.py doctor   --host <machine>         # git, python, docker (if used), writable workdir
+py -3 oblivion.py validate --host <machine>         # wiring and missing required values, no network
+py -3 oblivion.py plan     --host <machine>         # every service, branch and env value with its origin
+py -3 oblivion.py deploy   --host <machine>         # fetch code, install, write env, start, health-check
+py -3 oblivion.py status   --host <machine> --remote
 ```
+
+One machine: give `[machines.pc]` all seven services and the address `127.0.0.1`. A hand-written host file
+(`hosts/all-in-one.example.toml`) still works without a `robot.toml`.
 
 `README.md` in this folder explains the tool itself (branches, update with rollback, Docker, autostart).
 The environment layers are explained in section 5.
@@ -146,7 +156,7 @@ Python versions, verified by installing every service into fresh virtual environ
 
 So ai-agent cannot run on a stock Raspberry Pi OS Bookworm. The tool refuses **before installing anything**
 (`validate` and `deploy`: "ai-agent needs Python 3.12+ ..."). Run ai-agent on a Windows PC or a Linux server with
-Python 3.12+ (Ubuntu 24.04 ships it) and reach it from the Pi through `[remote]`, or install a newer Python and set
+Python 3.12+ (Ubuntu 24.04 ships it) and give it its own machine in `robot.toml` (Brain finds it there), or install a newer Python and set
 `[host] python = "<path>"`. `fastapi==0.111.0` / `pydantic==2.7.4` have no 3.14 wheels (the Windows stepper
 requirements use lower bounds for that reason).
 
@@ -179,9 +189,9 @@ sudo usermod -aG audio $USER                                        # microphone
 ```bash
 git clone -b feature_ai_claude https://github.com/DanielCalvo-Calvicia/FULL_OBLIVION.git oblivion-deploy
 cd oblivion-deploy
-cp hosts/<closest example>.example.toml hosts/<machine>.toml    # Windows: copy; set [host] secrets = "secrets/<machine>.env"
-cp secrets/example.env secrets/<machine>.env                    # fill in only what runs on THIS machine
-chmod 600 secrets/<machine>.env                                 # Linux/Pi
+cp robot.example.toml robot.toml                               # once: the layout, the settings and the keys; then the same file on every machine
+chmod 600 robot.toml                                            # Linux/Pi: it holds keys
+python3 oblivion.py topology                                    # optional: the whole robot as the tool understands it
 python3 oblivion.py doctor   --host <machine>                   # Windows: py -3
 python3 oblivion.py validate --host <machine>
 python3 oblivion.py deploy   --host <machine> --system-deps     # --system-deps: Linux/Pi only (sudo apt)
@@ -189,8 +199,8 @@ python3 oblivion.py status   --host <machine> --remote
 python3 oblivion.py autostart install --host <machine>
 ```
 
-The secrets file is created by hand on every machine and holds only the keys of the services that run there;
-the tool never copies secrets between machines. `doctor` and `validate` change nothing, and `deploy --dry-run`
+`robot.toml` is the single file of truth (section 5.2). The tool never copies it or any secret between machines: you put
+the file on each machine, and a machine may keep a key out of its copy by using its own `secrets/<machine>.env`. `doctor` and `validate` change nothing, and `deploy --dry-run`
 prints every command first. The first deploy of a machine takes several minutes (STT and ai-agent pull large
 dependencies).
 
@@ -268,38 +278,121 @@ pick the new wheel up. The deploy tool notices a changed wheel by itself.
 
 ### 5.1 The layers
 
-Each service gets a generated `.env` (or `--env-file` for Docker). Layers, later ones win:
+**A service's settings live in its `.env` file, and only there.** On every deploy and start the tool writes the
+service's `.env` (in its folder under `<workdir>/services/`) and the service reads that file when it starts. The tool does
+**not** put the settings in the service's environment, and it removes from that environment any variable of the same name
+that the machine or your shell has (an exported `GROQ_API_KEY`, say), because python-dotenv never overrides a variable
+that is already set and such a variable would silently beat the file. Variables the file does not define (`PATH`, and
+so on) pass through as usual. The file is readable by its owner only on Linux and the Pi, because it holds the API keys.
+
+How each kind of service reads the file:
+
+| Service | How it gets its `.env` |
+|---|---|
+| brain, stt, tts, speaker, stepper, ai-agent | load it themselves at start (python-dotenv, or Brain's own reader), before logging starts |
+| microphone | has no `.env` support yet, so `oblivion/service_runner.py` reads the file and starts it (registry key `dotenv = false`). Once its `main_flow/http.py` calls `load_dotenv`, set `dotenv = true`; a test tells you when |
+| Docker (`runtime = "docker"`) | the file is bind-mounted read-only at `/app/.env`; the container has no settings variables. (A service with `dotenv = false` still gets `--env-file`) |
+
+Two things follow from how the services read it. The services themselves load the file into their own process when
+they start, which is how python-dotenv works. And python-dotenv expands `${NAME}` inside any value, so the tool refuses a
+value that contains `${` (nothing real needs one). Values with a `#` or leading spaces are quoted for you.
+
+Layers, later ones win:
 
 | Layer | Source |
 |---|---|
 | `defaults` | the service repo's own `.env.example` |
 | `registry` | `[services.<name>.env]` in `services.toml` |
 | `computed` | host and port, and the base URLs of the services it consumes |
-| `host` | `[services.<name>.env]` in your host file |
-| `secrets` | `<SERVICE>__<VARIABLE>=value` lines in your secrets file |
+| `robot ALL` | `[env]` of `robot.toml`: one value for every service that uses the variable |
+| `env file ALL` | `ALL__<VARIABLE>=value` lines of the optional machine-local `secrets/<machine>.env` |
+| `host` | `[services.<name>.env]` in a host file |
+| `robot` | `[env.<service>]` of `robot.toml` |
+| `env file` | `<SERVICE>__<VARIABLE>=value` lines of the optional machine-local `secrets/<machine>.env` |
 
 ```powershell
 py -3 oblivion.py env ai-agent --host mypc      # merged values, secrets masked, and the layer of each one
 ```
 
-For route C put the variables in the environment of the terminal, or in a `.env` inside the service folder
-(every service except microphone loads one; a variable already set in the environment wins).
+For route C (by hand) put the variables in a `.env` inside the service folder (every service except microphone loads
+one). Setting them in the terminal's environment also works for a hand-started service, and there a variable already set
+wins over the file; the deploy tool never does this.
 
-### 5.2 The secrets file
+**Brain's `APP_ENV`.** Brain runs its VS Code launch-profile logic even when deployed (its repo tracks `.vscode/launch.json`),
+and that logic overrides `APP_ENV` from the `.env` with `development`. `APP_ENV` only labels Brain's log lines, so the
+effect is cosmetic, but a value set in the host file will not show up in Brain's logs. Fixing it belongs in the Brain repo.
 
-`secrets/<machine>.env`, git-ignored. Format `<SERVICE>__<VARIABLE>=value`, service in upper case with `-`
-written as `_`. Only these lines are read. `secrets/example.env` is the template.
+### 5.2 `robot.toml`: the single file of truth
 
-| Line in the secrets file | Service receives | Required when |
+**One file holds everything you fill in**: the layout of the robot and every setting and key of every service. It is
+`robot.toml` (git-ignored). `robot.example.toml` is the complete template:
+the layout at the top, then every **variable worth setting** of **every** service (about 60, each once), generated from each
+service's `.env.example` and source code (`scripts/env_inventory.py`; a test fails when it no longer lists everything the
+services read). What it leaves out is what nobody sets on a deployed machine: the address, port and URLs (computed), Brain's
+route paths and provider name, service names, the trace-export tuning knobs and the development switches (`VSCODE_*`, test
+flags). Those keep their defaults and are still accepted if you do set one.
+
+```powershell
+copy robot.example.toml robot.toml               # Linux/Pi: cp; then fill in the machines and only the variables you use
+```
+
+```toml
+[machines.server]                     # 1. where things run (section 8)
+address = "192.168.1.10"
+services = ["brain", "ai-agent", "stt", "tts"]
+
+[env]                                 # 2. one value for every service that uses the variable
+LOG_LEVEL = "DEBUG"                   #    reaches all seven services
+OPENAI_API_KEY = "<your key>"         #    reaches STT and ai-agent, and no other service
+
+[env.stt]                             # 3. one service's own variables; they win over [env]
+STT_LANGUAGE = "es"
+[env.stepper]
+MOCK_HARDWARE = 0                     #    numbers and true/false are fine: they become the text 0, true
+```
+
+* **Each service runs on exactly one machine,** so `[env.<service>]` needs no per-machine variant: the Pi's `MOCK_HARDWARE = 0`
+  sits under `[env.stepper]` and only the Pi's stepper ever reads it. The same file is put on every machine, and a machine
+  reads only the tables of the services it runs.
+* **`[env]` reaches every service that uses that variable, and no other:** `LOG_LEVEL` reaches all seven, `OPENAI_API_KEY`
+  reaches STT and ai-agent (a service with no such setting never sees the key), `ALLOWED_ORIGINS` reaches speaker and
+  stepper. `[env.<service>]` wins over `[env]`. `SERVICE_NAME` and the computed variables are never taken from `[env]`.
+* **In the template** the secrets are listed active and empty (fill them in); every other variable is commented out with its
+  default (`#STT_LANGUAGE = 'en'`): uncomment and edit only what you want to change. Values shown are the ones a deployed
+  machine really gets (they include what `services.toml` presets, such as `AI_AGENT_RELOAD=0` and `MOCK_HARDWARE=1`).
+* **Not set here:** the bind address, the port and the base URLs of the other services. They are computed from the layout and
+  `services.toml` so the services find each other; setting one here wins for that service but the others keep using the
+  computed values, so `validate` warns.
+* **Checked for you:** `validate` and `deploy` reject an `[env.<name>]` that is not a service or a value that is not a string,
+  number or boolean, and, once the code is fetched, warn about a variable a service does not use (a probable typo, naming
+  `robot.toml`). Variables the code reads that no `.env.example` lists (`AI_AGENT_MODELS_FILE`, `AI_AGENT_MODEL_PHASE_<n>`,
+  `GITHUB_API_KEY`) are declared in `services.toml` (`extra_env`), and the ones nobody sets in `internal`.
+* **Keys travel with the file.** A machine that gets `robot.toml` gets every key in it. To keep a key off a machine, leave it
+  out of that machine's copy and use the optional overlay below.
+* **Not covered:** `aws_microservice` (Go, not deployed by this tool) reads `APP_PORT`, `AWS_REGION`, `AWS_ACCESS_KEY_ID` and
+  `AWS_SECRET_ACCESS_KEY` from its own environment.
+
+**The machine-local overlay (optional).** `secrets/<machine>.env` (git-ignored; picked up by name for a machine of
+`robot.toml`, or named by `[host] env_file` in a host file, whose older name is `secrets`) holds `<SERVICE>__<VARIABLE>=value`
+lines (`STT__OPENAI_API_KEY=...`, the service in upper case with `-` written as `_`) and `ALL__<VARIABLE>=value` lines. It wins
+over `robot.toml`, so it is the place for a key that only one machine should hold, and it is how `launch.py` stores the keys it
+asks for. `validate` warns about a line in it that nothing reads (no `SERVICE__` prefix, an unknown service, a variable set
+twice, a missing file). `scripts/env_inventory.py` and this section are the only places that describe the variables;
+`plan` and `env` show, for any service, the final value and the layer that set it.
+
+The keys the services need:
+
+| Where in `robot.toml` | Service receives | Required when |
 |---|---|---|
-| `STT__OPENAI_API_KEY=` | `OPENAI_API_KEY` | `STT_ENGINE=openai` (the default) |
-| `AI_AGENT__GROQ_API_KEY=` | `GROQ_API_KEY` | the active LLM profile uses Groq (default profile does) |
-| `AI_AGENT__GOOGLE_API_KEY=` | `GOOGLE_API_KEY` | the active profile uses Google models (default profile does) |
-| `AI_AGENT__OPENAI_API_KEY=`, `..__ANTHROPIC_API_KEY=`, `..__MISTRAL_API_KEY=`, `..__COHERE_API_KEY=`, `..__GITHUB_PAT=` | the same names | only if you switch models to those providers |
-| `AI_AGENT__LANGFUSE_PUBLIC_KEY=`, `..__LANGFUSE_SECRET_KEY=` | the same names | never; optional cost tracking |
+| `[env]` (or `[env.stt]`) `OPENAI_API_KEY` | `OPENAI_API_KEY` | `STT_ENGINE=openai` (the default) |
+| `[env.ai-agent]` `GROQ_API_KEY` | `GROQ_API_KEY` | the active LLM profile uses Groq (default profile does) |
+| `[env.ai-agent]` `GOOGLE_API_KEY` | `GOOGLE_API_KEY` | the active profile uses Google models (default profile does) |
+| `[env.ai-agent]` `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `MISTRAL_API_KEY`, `COHERE_API_KEY`, `GITHUB_PAT` | the same names | only if you switch models to those providers |
+| `[env.ai-agent]` `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | the same names | never; optional cost tracking |
 
-`validate` and `plan` report a missing required value with the exact line to add. Nothing else in the
-platform holds a secret.
+`validate` and `plan` report a missing required value with the exact place to add it. Nothing else in the
+platform holds a secret. To see what a service will really get, and which layer set each value:
+`py -3 oblivion.py env <service> --host <machine>` (secrets are masked).
 
 ### 5.3 Per-service variables
 
@@ -316,6 +409,8 @@ Values shown are the defaults. Everything can be left alone except what the "Fil
 | `LOG_FORMAT` | `json` | `json` (machine-readable) or `console` (`key=value`, for people) |
 | `LOG_OUTPUT` | `stdout` | `stdout`, `stderr` or a file path |
 | `TRACE_EXPORT_ENABLED` / `TRACE_EXPORT_URL` | off | send trace spans to a collector (see `shared-logging/docs/logging.md`) |
+| `TRACE_EXPORT_HEADERS` (also `_TIMEOUT`, `_BATCH_SIZE`, `_FLUSH_INTERVAL`, `_QUEUE_SIZE`, `_ATTRIBUTES`) | see the logging guide | collector options. `TRACE_EXPORT_HEADERS` can carry credentials: put it in `robot.toml` (`TRACE_EXPORT_HEADERS` under `[env]`, or in the machine's own `secrets/<machine>.env`); `plan` and `env` mask it |
+| `APP_ENV` (or `ENVIRONMENT`) | `development` | label written into every log line and span (`development`, `staging`, `production`). Only Brain has it in its `.env.example`, so the others say `development` unless you set it in the host file |
 
 ai-agent uses `AI_AGENT_HOST` and `AI_AGENT_PORT` instead of `SERVICE_HOST` / `SERVICE_PORT`; the deploy tool
 knows this and fills the right ones.
@@ -328,7 +423,8 @@ knows this and fills the right ones.
 | `MICROPHONE_TARGET_KEYWORDS` | empty | comma-separated device-name words to pick a specific input (empty = OS default). Use it when the default is wrong |
 | `MICROPHONE_SHOW_METER` | `true` | `false` in a service window or log you do not want a level meter in |
 
-Reads the process environment only (no `.env` file).
+Has no `.env` support in its own code: the deploy tool starts it through `oblivion/service_runner.py`, which loads the
+generated `.env` first. Started by hand (route C) it reads the process environment only.
 
 #### stt
 
@@ -336,7 +432,7 @@ Reads the process environment only (no `.env` file).
 |---|---|---|
 | `STT_ENGINE` | `openai` | `openai` = OpenAI Whisper API; any other value (use `local`) = faster-whisper `small.en` on the CPU |
 | `STT_LANGUAGE` | `en` | ISO-639-1 code forced on the transcription (`en`, `es`). Must match the language people speak; `small.en` is English only |
-| `OPENAI_API_KEY` | empty | **secret**: required when `STT_ENGINE=openai` (secrets file, section 5.2) |
+| `OPENAI_API_KEY` | empty | **secret**: required when `STT_ENGINE=openai` (`robot.toml`, section 5.2) |
 
 With `local` the model downloads on the first run into the Hugging Face cache (`~/.cache/huggingface`), so the
 first start needs internet and takes a while; later starts are offline.
@@ -374,7 +470,7 @@ Speaker has no authentication (the old token option was removed).
 | `AI_AGENT_PARALLEL_ACTIONS` | `1` | independent plan actions that may run at once; keep `1` on Groq (token-per-minute limit) |
 | `AI_AGENT_MAX_ATTEMPTS` | `3` | tries of a failed LLM/tool call |
 | `AI_AGENT_MODELS_FILE` | `config/step_models.json` | another model-choice file |
-| `AI_AGENT_MODEL_PHASE_<n>` | unset | override the model of one phase (1 triage, 2 project manager, 3 safety gate, 4 worker, 5 MCP operator, 6 data engineer, 7 draft writer, 8 editor, 99 clarification) |
+| `AI_AGENT_MODEL_PHASE_<n>` | unset | override the model of one phase (1 triage, 2 project manager, 3 safety gate, 4 worker, 5 MCP operator, 6 data engineer, 7 draft writer, 8 editor, 9 answer checker, 99 clarification; 20 motion planner, the movement agent's model) |
 | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST` | empty | optional cost tracking; only metadata is sent |
 
 **Choosing the LLM**: the active profile is the `profile` field of `ai-agent/config/step_models.json`
@@ -391,7 +487,7 @@ session by itself).
 
 | Variable | Default | Fill in |
 |---|---|---|
-| `MOCK_HARDWARE` | `0` in `.env.example`, **`true` set by the deploy catalogue** | `true`/`1` = no GPIO, moves are only simulated. Set `0` **only on the Raspberry Pi wired to the motors** (host-file override) |
+| `MOCK_HARDWARE` | `0` in `.env.example`, **`1` set by the deploy catalogue** | `1` = no GPIO, moves are only simulated. **Only the exact value `1` counts** (the stepper compares the string): `true` does NOT select the mock, and on a Raspberry Pi it would drive the real motors. Set `0` **only on the Raspberry Pi wired to the motors** (host-file override) |
 | `STEPPER_CONFIGS` | two steppers (`stepper_1`, `stepper_2`) | JSON map id → `{"step": <BCM pin>, "dir": <BCM pin>, "en": <BCM pin>}`. Match your wiring |
 | `STEPS_PER_REVOLUTION` | `400` | full steps × microsteps of your motor/driver (1.8° motor = 200; with 1/8 microstepping = 1600). A wrong value moves the arm the wrong angle |
 | `DEFAULT_SPEED_LIMIT` | `1000.0` | steps per second cap |
@@ -405,10 +501,10 @@ time on real hardware, move a small angle with the arm unloaded and be ready to 
 | Variable | Default | Fill in |
 |---|---|---|
 | `APP_ENV` | `development` | `development`, `staging` or `production` |
-| `MICROPHONE_BASE_URL`, `STT_BASE_URL`, `TTS_BASE_URL`, `SPEAKER_BASE_URL` | `http://127.0.0.1:<port>` | **computed by the deploy tool** from the host file / `[remote]`. Set by hand only in route C when a service is on another machine |
+| `MICROPHONE_BASE_URL`, `STT_BASE_URL`, `TTS_BASE_URL`, `SPEAKER_BASE_URL` | `http://127.0.0.1:<port>` | **computed by the deploy tool** from `robot.toml` (or the host file's `[remote]`). Set by hand only in route C when a service is on another machine |
 | `AI_AGENT_BASE_URL` | `http://127.0.0.1:7998` | same |
 | `STEPPER_BASE_URL` | `http://127.0.0.1:8005` | same; optional, without a stepper the arms simply do not move |
-| `*_ENDPOINT` (`MICROPHONE_START/STOP/STREAM`, `STT_SET_STREAM/GET_STREAM/BATCH`, `TTS_SET_STREAM/STREAM`, `SPEAKER_PLAY_STREAM`, `AI_AGENT_START_SESSION/MESSAGE/END_SESSION`) | the routes the services expose | leave as they are |
+| `*_ENDPOINT` (`MICROPHONE_START/STOP/STREAM`, `STT_SET_STREAM/GET_STREAM/BATCH`, `TTS_SET_STREAM/STREAM`, `SPEAKER_PLAY_STREAM`, `AI_AGENT_START_SESSION/MESSAGE/END_SESSION` (conversation-flow, `/conversation-flow/session/...`), `AI_AGENT_MOTION_START_SESSION/MESSAGE/END_SESSION` (motion-flow, `/motion-flow/session/...`)) | the routes the services expose | leave as they are |
 | `STEPPER_ROTATE_ENDPOINT_TEMPLATE` | `/control/{stepper_id}/rotate` | leave |
 | `STEPPER_LEFT_ARM_STEPPER_ID`, `STEPPER_RIGHT_ARM_STEPPER_ID` | `stepper_1`, `stepper_2` | must be ids that exist in the stepper's `STEPPER_CONFIGS` |
 | `STEPPER_DEFAULT_RPM` | `15` | arm speed |
@@ -468,6 +564,9 @@ Use **headphones** (the robot would otherwise hear itself). With every service h
    ai-agent (not an echo of your words).
 2. Say "Move your left arm ninety degrees forward." You should hear a confirmation and, with the stepper in
    mock mode, see a rotate request in the stepper log (`py -3 launch.py logs stepper` or its console window).
+   Say "Move your left arm ninety degrees and then bring it back": two rotate requests, in that order (the
+   second one the opposite way). Say "Move your arm": the robot asks which arm and how far, and your answer
+   completes the movement.
 3. Say something impossible ("Fly to the moon"). ai-agent should refuse politely.
 4. Stop ai-agent, speak again: Brain answers with its spoken apology and keeps running. Start ai-agent, speak
    again: the conversation works without restarting Brain.
@@ -501,43 +600,86 @@ brain_microservice\windows\Scripts\python.exe -m pytest deployment\tests -q     
 
 ## 8. Several machines
 
-Give each machine its own host file listing only what runs there, and describe the rest under `[remote]`.
-Examples in `hosts/`: `all-in-one`, `windows-audio` (microphone and speaker on a PC), `linux-server`
-(brain, ai-agent, stt, tts; audio and stepper elsewhere), `raspberry-audio`, `raspberry-stepper` (only the stepper,
-with the real GPIO driver), `test-branch` (a second copy on other ports and a feature branch, without touching the
-running one).
+### 8.1 The layout is the top of `robot.toml`
+
+Each fact is written **once**, and everything you fill in is in `robot.toml`. Its `[machines.*]` tables are the layout (which
+machine runs which services, and where each machine is); its `[env]` tables are the settings and keys (section 5.2); the port of
+every service is in `services.toml`, which you do not edit. Everything that used to be repeated per machine is derived:
+
+| It is | Derived from | Used to be |
+|---|---|---|
+| a machine's services | the machine's `services` list | a `[services.*]` table per host file |
+| the URL of a service on another machine | that machine's `address` + the service's port | a `[remote]` line per host file, address and port typed by hand |
+| a service's port | `services.toml` (`ports = { name = N }` on a machine only to deviate; callers follow) | the same number in the host file, the `[remote]` URLs and the docs |
+| a machine's bind address | `0.0.0.0` only if a service on another machine calls one of its services, else `127.0.0.1` | `bind = ...` set by hand in each host file |
+| `SERVICE_HOST`, `SERVICE_PORT` and every `*_BASE_URL` of a service | the four rows above | (already computed, from the repeated values) |
+
+```toml
+# robot.toml, the layout part (git-ignored; robot.example.toml is the template)
+[machines.pc]
+address = "192.168.1.20"            # an IP or a host name: no http://, no port
+services = ["microphone", "speaker"]
+[machines.server]
+address = "192.168.1.10"
+services = ["brain", "ai-agent", "stt", "tts"]
+[machines.pi]
+address = "192.168.1.30"
+services = ["stepper"]
+# ports = { stepper = 18005 }       # only to deviate from services.toml
+```
+
+Put the same file on every machine. Then `--host <machine>` means "this machine of `robot.toml`": no host file is needed.
+
+```powershell
+py -3 oblivion.py topology                       # every machine, its address, services, what it exposes and calls; checks the layout
+py -3 oblivion.py deploy --host server           # on the server; likewise --host pc and --host pi on theirs
+py -3 oblivion.py deploy --host pc --robot D:\robot\robot.toml    # another file
+```
+
+`topology` ends with `OK` when every machine can find what it needs, and otherwise names the missing service
+(`brain needs 'speaker': add it to a machine of the topology`) and lists services that no machine runs.
+
+### 8.2 Per-machine settings and overrides
+
+* **Settings and keys:** in `robot.toml` (section 5.2): the Pi's `MOCK_HARDWARE = 0` under `[env.stepper]`, the server's keys, a
+  PC's `MICROPHONE_TARGET_KEYWORDS = "usb"` under `[env.microphone]`. A key that only one machine should hold goes in that
+  machine's own `secrets/<machine>.env` (the optional overlay), which wins.
+* **Overrides:** a host file `hosts/<machine>.toml` with `[host] machine = "<machine>"` on top of the topology, only to pin a
+  branch, use Docker for a service, name a Python or change the workdir (`hosts/machine.example.toml`). It cannot add a
+  service that the topology places elsewhere. `bind` and `[remote]` in it still work and win over the derived values, and a
+  `[remote]` entry may be just an address (`192.168.1.20`, given the service's catalogue port), `address:port` or a URL.
+* **Without a topology** (one machine, or old host files with `[services.*]`, `bind` and `[remote]`) everything works as
+  before: `hosts/all-in-one.example.toml`, `hosts/test-branch.example.toml`.
 
 A typical three-machine robot (follow 3.1 on each):
 
-| Machine | Runs | Host file to copy | Secrets file needs |
-|---|---|---|---|
-| Windows PC with the sound card | microphone, speaker | `windows-audio` | nothing |
-| Server (Windows or Linux, Python 3.12+) | brain, ai-agent, stt, tts | `linux-server` | `STT__OPENAI_API_KEY`, `AI_AGENT__GROQ_API_KEY`, `AI_AGENT__GOOGLE_API_KEY` |
-| Raspberry Pi wired to the motors | stepper | `raspberry-stepper` | nothing |
+| Machine | Runs | What `robot.toml` needs for it |
+|---|---|---|
+| Windows PC with the sound card | microphone, speaker | nothing (device hints only if the wrong device is picked) |
+| Server (Windows or Linux, Python 3.12+) | brain, ai-agent, stt, tts | `OPENAI_API_KEY` under `[env]`, `GROQ_API_KEY` and `GOOGLE_API_KEY` under `[env.ai-agent]` |
+| Raspberry Pi wired to the motors | stepper | `MOCK_HARDWARE = 0` under `[env.stepper]` |
 
-The server's `[remote]` lists the PC's microphone and speaker and the Pi's stepper by IP address or host name; the
-PC and the Pi need `bind = "0.0.0.0"` and open firewall ports (8000, 8003, 8005).
+The PC and the Pi bind to the network by themselves (Brain calls them); open the firewall for their ports (8000, 8003, 8005).
 
-**Start order across machines.** Brain checks microphone, STT, TTS and speaker when it starts and, if they are not
+### 8.3 Start order across machines
+
+Brain checks microphone, STT, TTS and speaker when it starts and, if they are not
 all available within `STARTUP_PREFLIGHT_TIMEOUT_SECONDS` (60), **it exits and nothing restarts it** (verified: it logs
 `StartupPreflightError` and never opens its port). So the tool waits for you: before starting a service it waits up to
-`--remote-wait` seconds (default 120, `0` = do not wait) for the required services that live on other machines and are
-listed in `[remote]`, and prints which ones it is waiting for. This also covers boot (`autostart` runs
+`--remote-wait` seconds (default 120, `0` = do not wait) for the required services that live on other machines,
+and prints which ones it is waiting for. This also covers boot (`autostart` runs
 `oblivion start`) and `update`. It does not wait for the optional stepper. If the other machines take longer to
 boot, raise `--remote-wait`; if Brain is dead anyway, `oblivion restart --host <server> --service brain`.
 
 Rules of thumb:
 
 * Audio services belong on the machine that has the sound card; the stepper on the Raspberry Pi wired to the
-  motors (`MOCK_HARDWARE=0` there only).
-* A machine whose services must be reached from another one needs `bind = "0.0.0.0"`, and the firewall must
-  allow those ports (8000, 8003, 8005, ...). There is no authentication: trusted LAN only.
-* Brain only needs URLs: `[remote] ai-agent = "http://192.168.1.10:7998"` and so on. `validate` fails when a
-  required service is neither local nor remote (the stepper is the only optional one).
+  motors (`MOCK_HARDWARE = 0` under `[env.stepper]` only).
+* There is no authentication: trusted LAN only. `validate` warns whenever a machine binds `0.0.0.0`.
+* `validate` fails when a required service is placed on no machine (the stepper is the only optional one), when an
+  address is malformed, and warns about a `[remote]` entry that points at this same machine.
 * The mandatory preflight makes Brain wait for the four audio/speech services (and give up, see above), so
   start those machines first, keep the tool's `--remote-wait`, or raise `STARTUP_PREFLIGHT_TIMEOUT_SECONDS`.
-* `validate` checks the `[remote]` URLs are well formed (`http://host:port`) and warns about ones that point
-  at this same machine.
 
 ## 9. Operating it
 
@@ -551,22 +693,22 @@ py -3 oblivion.py autostart install --host mypc             # systemd user unit,
 * Logs: `<workdir>/logs/<service>.log`; on Windows each service also has its own console window.
   Structured JSON by default; set `LOG_FORMAT=console` for readable lines.
 * State (what commit is installed): `<workdir>/state`. Generated `.env` files: in each service folder
-  (`<workdir>/services/<folder>/.env`, regenerated on every deploy; edit the host or secrets file, not these).
+  (`<workdir>/services/<folder>/.env`, regenerated on every deploy; edit `robot.toml`, not these).
 * An update never overwrites local edits in a clone (refused unless `--force`) and never leaves a service dead.
 * Linux/Pi: run `sudo loginctl enable-linger $USER` once so the user unit starts without a login.
-* Rotating a key: edit the secrets file and `restart` the service.
+* Rotating a key: edit `robot.toml` (copy it to the machine) or the machine's own `secrets/<machine>.env`, and `restart` the service.
 
 ## 10. Troubleshooting
 
 | Symptom | Likely cause and fix |
 |---|---|
-| `ai-agent` never becomes ready,  `data.is_available` is false in `/available` | no LLM key/URL reached it. `oblivion.py env ai-agent --host mypc` (values masked) shows what it has; add the `AI_AGENT__...` lines and `GROQ_URL`/`GOOGLE_URL`, then restart |
+| `ai-agent` never becomes ready,  `data.is_available` is false in `/available` | no LLM key/URL reached it. `oblivion.py env ai-agent --host mypc` (values masked) shows what it has; add the keys under `[env.ai-agent]` in `robot.toml` (the `GROQ_URL`/`GOOGLE_URL` endpoints are preset), then restart |
 | `update` rolls ai-agent back to the previous commit | a service that answers but reports `is_available` false is counted as unhealthy after the grace period. Without an LLM key every new ai-agent release looks broken: fix the secrets first, or `update --no-rollback` to keep it and read its log |
 | ai-agent answers, but replies are errors about a model/provider | the active profile needs a provider you did not configure: fill its key and URL or switch `profile` in `config/step_models.json` |
 | Brain speaks an apology ("could not reach my decision-making service") | ai-agent is down or its URL is wrong (`AI_AGENT_BASE_URL`); check `curl .../available` from the Brain machine |
 | Arms do not move, replies work | stepper missing/unreachable (moves are best effort), or `STEPPER_*_ARM_STEPPER_ID` is not an id in the stepper's `STEPPER_CONFIGS`. See Brain's log |
 | Brain stays in preflight | one of microphone/stt/tts/speaker is not `available`; check each with section 6, or `STARTUP_PREFLIGHT_ENABLED=false` while debugging |
-| STT fails at start with `openai` engine | `STT__OPENAI_API_KEY` missing; or use `STT_ENGINE=local` |
+| STT fails at start with `openai` engine | `OPENAI_API_KEY` missing in `robot.toml` (under `[env]` or `[env.stt]`); or use `STT_ENGINE = "local"` |
 | STT hears nothing / wrong text | wrong `MICROPHONE_TARGET_KEYWORDS` input, or `STT_LANGUAGE` does not match the spoken language |
 | Speaker fails to open a device (`PaErrorCode -9999`, "Blocking API not supported") | the auto-selected device is a WDM-KS one. List devices and set `SPEAKER_DEVICE_INDEX` to an MME/WASAPI output: `windows\Scripts\python.exe -c "import sounddevice as sd; print(sd.query_devices())"` |
 | TTS speaks the wrong language | Windows default voice is Spanish: set `TTS_VOICE_NAME=Zira` (already the default) or another installed English voice |
@@ -574,6 +716,7 @@ py -3 oblivion.py autostart install --host mypc             # systemd user unit,
 | Stepper install fails on Python 3.14 with a Rust/`pydantic-core` error | old exact pins; the Windows requirements file now uses lower bounds. Update the stepper code |
 | `deploy` / `validate` says `library 'shared-logging' is not available on this machine` | neither the workspace checkout nor `wheels/shared_logging-*.whl` exists: the clone of this repository is incomplete (`git status`, `git pull`), or run `scripts/bundle_shared_logging.py` on a machine that has the workspace and commit the wheel |
 | `update` refuses ("local changes") | edits inside a clone under `<workdir>/services`; commit or discard them, or `--force` |
+| A variable I exported in my shell (or set on the machine) has no effect on a service | by design: the service reads only its `.env`, and the tool removes same-named variables from its environment. Put the value in `robot.toml` (setting or key) and restart the service. `oblivion.py env <service> --host <machine>` shows what it will get |
 | Health check times out on first run | dependency install or the local Whisper download is slow: `--health-timeout 600` (launch.py) |
 | `validate`/`deploy` says `ai-agent needs Python 3.12+` | the interpreter that builds the venv is older (Raspberry Pi OS Bookworm has 3.11): use a newer Python via `[host] python`, or run ai-agent on another machine and list it under `[remote]` |
 | Brain is not running after a boot or a deploy, its log ends with `StartupPreflightError` | microphone, STT, TTS or speaker was not available in time. Check them (`status --remote`), then `restart --service brain`. The tool waits for remote ones (`--remote-wait`, section 8); raise it if the other machines boot slowly || Port already in use | another copy is running (`launch.py status` / `stop`) or change `port =` in the host file |

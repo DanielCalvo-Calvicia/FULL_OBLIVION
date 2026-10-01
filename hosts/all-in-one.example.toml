@@ -1,23 +1,18 @@
-# One machine runs every service: the simplest setup, good for development on a PC and for a
-# production-like test of the whole flow.
-# Copy to hosts/<name>.toml (real host files are git-ignored) and adjust.
+# One machine runs every service: the simplest setup, for a PC where you develop or try the whole flow.
+# `python launch.py` creates and uses hosts/local.toml for you; this file is the same thing written by hand:
 #   python oblivion.py deploy --host all-in-one
-# Secrets (LLM provider keys, OpenAI key for STT) go in the file named by [host] secrets, never here.
-# See docs/DEPLOYMENT.md for every variable.
+# Ports and URLs come from services.toml (Brain finds the others on 127.0.0.1), the LLM endpoints too. Settings and
+# keys go in the machine env file below (or use robot.toml, the single file of truth: robot.example.toml).
 [host]
 name = "all-in-one"
-os = "auto"                    # auto | windows | linux | raspberry
-workdir = "~/oblivion"         # clones, virtualenvs, logs and state live here
-bind = "127.0.0.1"             # 0.0.0.0 only if another machine must reach these services
-secrets = "secrets/all-in-one.env"
+env_file = "secrets/all-in-one.env"
+# workdir = "~/oblivion"           # clones, virtualenvs, logs and state live here
+# bind = "127.0.0.1"               # the default: nothing is reachable from other machines
 
 [services.microphone]
 [services.stt]
 [services.tts]
 [services.speaker]
-[services.ai-agent]            # decides the reply and arm movements; needs LLM keys in the secrets file
-[services.ai-agent.env]        # public OpenAI-compatible endpoints of the providers in config/step_models.json (not secrets)
-GROQ_URL = "https://api.groq.com/openai/v1"
-GOOGLE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
-[services.stepper]             # mock hardware unless this is the Raspberry Pi wired to the motors
-[services.brain]               # Brain finds the other services on 127.0.0.1 by itself
+[services.ai-agent]                # needs an LLM key in the env file, and Python 3.12+
+[services.stepper]                 # simulated unless STEPPER__MOCK_HARDWARE=0 in the env file (only on the Pi wired to motors)
+[services.brain]

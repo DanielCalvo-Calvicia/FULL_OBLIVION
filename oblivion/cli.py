@@ -8,12 +8,16 @@ import sys
 from pathlib import Path
 
 from . import autostart
-from .config import DeployError, apply_branch_overrides, load_host, load_registry
+from .config import (
+    ROBOT_FILE, DeployError, apply_branch_overrides, exposed_services, load_host, load_registry, load_topology,
+    validate_host,
+)
 from .manager import Manager, Options
 from .shell import Shell
 
 ROOT = Path(__file__).resolve().parent.parent
 COMMANDS = {
+    "topology": "show the whole robot: every machine, its address, its services, what it exposes; check each can find what it needs",
     "plan": "show what this machine will run: services, branches, and every environment value with its origin",
     "validate": "check the host file, service wiring and required environment values (no network, no changes)",
     "doctor": "check this machine has what deployment needs (git, python, docker, ...)",
@@ -34,7 +38,14 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True, metavar="command")
     for name, help_text in COMMANDS.items():
         p = sub.add_parser(name, help=help_text, description=help_text)
-        p.add_argument("--host", required=True, metavar="NAME|FILE", help="hosts/NAME.toml or a path to a host file")
+        p.add_argument(
+            "--host", required=name != "topology", metavar="NAME|FILE",
+            help="a machine of robot.toml, hosts/NAME.toml, or a path to a host file",
+        )
+        p.add_argument(
+            "--robot", metavar="FILE",
+            help=f"the single file of truth: machines, services and every setting (default {ROBOT_FILE})",
+        )
         p.add_argument("--service", "-s", action="append", metavar="NAME", help="limit to this service (repeatable)")
         p.add_argument("--dry-run", action="store_true", help="print what would be done, change nothing")
         if name in ("deploy", "update", "plan", "validate", "env", "start", "restart"):
@@ -68,7 +79,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _manager(args: argparse.Namespace) -> Manager:
     registry = load_registry(ROOT / "services.toml")
-    host = apply_branch_overrides(load_host(args.host, registry), getattr(args, "branch", []))
+    topology_file = Path(args.robot).resolve() if getattr(args, "robot", None) else None
+    host = apply_branch_overrides(load_host(args.host, registry, topology_file), getattr(args, "branch", []))
     options = Options(
         force=getattr(args, "force", False),
         system_deps=getattr(args, "system_deps", False),
@@ -89,7 +101,38 @@ def _report(failures: list[str]) -> int:
     return 1
 
 
+def _topology(args: argparse.Namespace) -> int:
+    registry = load_registry(ROOT / "services.toml")
+    path = Path(args.robot).resolve() if args.robot else ROOT / ROBOT_FILE
+    topology = load_topology(path, registry)
+    if topology is None:
+        raise DeployError(f"no robot file at {path}: copy robot.example.toml to {ROBOT_FILE} and fill it in")
+    print(f"{path.name}: {len(topology.machines)} machines")
+    problems = 0
+    for machine in topology.machines.values():
+        host = load_host(machine.name, registry, path, from_topology=True)
+        exposed = exposed_services(topology, registry, machine)
+        print(f"\n  {machine.name}  {machine.address}   bind {host.bind}")
+        for service, instance in host.services.items():
+            marker = "  <- called from other machines" if service in exposed else ""
+            print(f"      runs   {service:<10} port {instance.port}{marker}")
+        consumed = {target for service in host.services for target in registry.services[service].consumes}
+        for service in sorted(consumed & set(host.remote)):
+            print(f"      calls  {service:<10} {host.remote[service]}")
+        errors, _ = validate_host(host)
+        for error in errors:
+            problems += 1
+            print(f"      ERROR  {error}")
+    unplaced = sorted(set(registry.services) - {s for m in topology.machines.values() for s in m.services})
+    if unplaced:
+        print(f"\n  not placed on any machine: {', '.join(unplaced)}")
+    print("\nOK" if not problems else f"\n{problems} error(s)")
+    return 1 if problems else 0
+
+
 def run(args: argparse.Namespace) -> int:
+    if args.command == "topology":
+        return _topology(args)
     manager = _manager(args)
     names: list[str] | None = args.service
     command = args.command

@@ -2,14 +2,13 @@
 hosts/*.toml
 !hosts/*.example.toml
 secrets/*
-!secrets/example.env
 __pycache__/
 *.pyc
 .pytest_cache/
-# Old cloned copies of the service repos (unused by the current tool)
-repos/
 
 # Never commit environment files (generated .env, old root .env)
 .env
 *.env
-!secrets/example.env
+
+# The single file of truth of the robot: your addresses, settings and keys (copy robot.example.toml)
+/robot.toml

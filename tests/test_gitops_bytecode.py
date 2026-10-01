@@ -66,3 +66,19 @@ def test_a_hand_edited_tracked_env_is_still_refused(clone):
     with pytest.raises(DeployError, match="local modifications"):
         gitops.sync(Shell(), str(remote), repo, "main")
     assert (repo / ".env").read_text() == "SERVICE_PORT=9999\n"
+
+
+def test_a_dry_run_does_not_report_rewritten_bytecode_or_a_generated_env_as_local_edits(clone):
+    """A dry run restores nothing, so the dirty check itself must ignore what a real run would restore."""
+    repo, remote = clone
+    (repo / "__pycache__" / "a.cpython-314.pyc").write_bytes(b"rewritten by python")
+    (repo / ".env").write_text(GENERATED_HEADER.format(host="pc") + "SERVICE_PORT=8005\n")
+    gitops.sync(Shell(dry_run=True, echo=False), str(remote), repo, "main")  # no DeployError
+    assert (repo / "__pycache__" / "a.cpython-314.pyc").read_bytes() == b"rewritten by python"  # and nothing was touched
+
+
+def test_a_dry_run_still_refuses_a_real_edit(clone):
+    repo, remote = clone
+    (repo / "main.py").write_text("x = 2\n")
+    with pytest.raises(DeployError, match="local modifications"):
+        gitops.sync(Shell(dry_run=True, echo=False), str(remote), repo, "main")

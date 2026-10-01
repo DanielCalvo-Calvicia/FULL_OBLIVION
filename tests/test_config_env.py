@@ -27,7 +27,7 @@ def host_file(tmp_path: Path, body: str) -> str:
 def test_the_shipped_registry_and_examples_are_valid(registry):
     assert {"brain", "microphone", "stt", "tts", "speaker", "stepper", "ai-agent"} <= set(registry.services)
     for example in (ROOT / "hosts").glob("*.example.toml"):
-        errors, _ = validate_host(load_host(str(example), registry))
+        errors, _ = validate_host(load_host(str(example), registry, ROOT / "robot.example.toml"))
         assert errors == [], f"{example.name}: {errors}"
 
 
@@ -120,7 +120,7 @@ def test_env_layers_priority_and_origin(registry, tmp_path):
     assert resolved.values["STT_LANGUAGE"] == "en" and resolved.layer_of["STT_LANGUAGE"] == "host"
     assert resolved.values["STT_ENGINE"] == "openai" and resolved.layer_of["STT_ENGINE"] == "registry"
     assert resolved.values["SERVICE_PORT"] == "9001" and resolved.layer_of["SERVICE_PORT"] == "computed"
-    assert resolved.values["OPENAI_API_KEY"] == "sk-secret" and resolved.layer_of["OPENAI_API_KEY"] == "secrets"
+    assert resolved.values["OPENAI_API_KEY"] == "sk-secret" and resolved.layer_of["OPENAI_API_KEY"] == "env file"
     assert "OTHER" not in resolved.values  # another service's secret is never given to stt
     assert resolved.errors == []
     assert mask("OPENAI_API_KEY", "sk-secret") == "********" and mask("STT_LANGUAGE", "en") == "en"
@@ -231,7 +231,7 @@ def test_ai_agent_secrets_are_namespaced_with_an_underscore_and_never_leak_to_ot
         [services.stt]
     """), registry)
     agent = resolve_env(host, "ai-agent", None)
-    assert agent.values["GROQ_API_KEY"] == "gsk-secret" and agent.layer_of["GROQ_API_KEY"] == "secrets"
+    assert agent.values["GROQ_API_KEY"] == "gsk-secret" and agent.layer_of["GROQ_API_KEY"] == "env file"
     assert "OPENAI_API_KEY" not in agent.values
     assert "GROQ_API_KEY" not in resolve_env(host, "stt", None).values
     assert mask("GROQ_API_KEY", "gsk-secret") == "********"

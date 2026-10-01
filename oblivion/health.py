@@ -24,7 +24,7 @@ def check(base_url: str, spec: ServiceSpec) -> tuple[bool, str]:
     """``(ok, detail)``; the detail names the stage that failed."""
     status, body = _get(base_url + spec.health)
     if status != 200:
-        return False, f"health: " + (f"HTTP {status}" if status else f"no answer ({body.decode(errors='ignore')[:80]})")
+        return False, "health: " + (f"HTTP {status}" if status else f"no answer ({body.decode(errors='ignore')[:80]})")
     if spec.ready:
         status, body = _get(base_url + spec.ready)
         if status != 200:

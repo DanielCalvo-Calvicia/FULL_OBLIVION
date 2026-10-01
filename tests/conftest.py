@@ -22,6 +22,15 @@ def _headless(monkeypatch):
 SERVICE_MAIN = '''
 import json, os
 from http.server import BaseHTTPRequestHandler, HTTPServer
+def _mine(k): return k.startswith("T_") or k in ("SERVICE_HOST", "SERVICE_PORT", "PRODUCER_BASE_URL")
+# What the process was STARTED with: the deploy tool must not have put any setting in it.
+STARTED_WITH = sorted(k for k in os.environ if _mine(k))
+# What python-dotenv does in the real services: read the .env next to the code; a variable already set wins.
+for _line in open(os.path.join(os.path.dirname(__file__), ".env"), encoding="utf-8"):
+    _line = _line.strip()
+    if _line and not _line.startswith("#") and "=" in _line:
+        _key, _, _value = _line.partition("=")
+        os.environ.setdefault(_key, _value)
 VERSION = open(os.path.join(os.path.dirname(__file__), "VERSION")).read().strip()
 if VERSION == "broken":
     raise SystemExit("this release crashes on start")
@@ -30,7 +39,7 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def do_GET(self):
         body = {"/health": {}, "/available": {"data": {"is_available": True, "reason": None}},
-                "/version": {"version": VERSION, "env": {k: v for k, v in os.environ.items() if k.startswith("T_") or k.endswith("_BASE_URL")}}}
+                "/version": {"version": VERSION, "started_with": STARTED_WITH, "env": {k: v for k, v in os.environ.items() if k.startswith("T_") or k.endswith("_BASE_URL")}}}
         if self.path not in body:
             self.send_response(404); self.end_headers(); return
         raw = json.dumps(body[self.path]).encode()
@@ -89,15 +98,9 @@ def free_port() -> int:
         return probe.getsockname()[1]
 
 
-@pytest.fixture
-def platform_dir(tmp_path: Path) -> Path:
-    return tmp_path
-
-
 def write_registry(base: Path, remotes: dict[str, FakeRemote], ports: dict[str, int]) -> Path:
     body = ['[libraries.shared-logging]', 'wheel_dir = "nowhere"', ""]
     for name, remote in remotes.items():
-        consumes = ' consumes = { producer = "PRODUCER_BASE_URL" }' if name == "consumer" else ""
         body.append(textwrap.dedent(f'''
             [services.{name}]
             git = "{remote.url.replace(chr(92), "/")}"

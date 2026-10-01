@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
 """Launch the whole OBLIVION application on this machine (Windows, Linux or Raspberry Pi).
 
-    python launch.py                 first run: creates the machine files, deploys, starts, shows status
+    python launch.py                 first run: deploys, starts, shows status
                                      later runs: updates to the newest code of the branch, restarts, shows status
     python launch.py stop            stop everything
     python launch.py status          state, code version and health of every service
     python launch.py logs [service]  last log lines (default: brain)
 
 Options:  --branch REF   branch/tag/commit for every service (default: feature_ai_claude)
-          --stt local    use local Whisper instead of the OpenAI API (no key needed, big install)
+          --machine NAME which machine of robot.toml this is (only needed when it describes several)
+          --stt local    use local Whisper instead of the OpenAI API (no key needed, big install; without a robot.toml)
           --no-update    start what is installed, do not fetch new code
           --console M    what each service window prints (Windows): stream (default, errors + stream events),
                          errors (errors only) or all. The log files always keep everything.
           --system-deps  Linux/Pi: apt-get install the system packages the services need (uses sudo)
           --dry-run      print every command, change nothing
 
-It only needs Python 3.11+ and git. Everything it creates (hosts/local.toml, secrets/local.env) is git-ignored.
-For several machines or custom layouts use oblivion.py and its host files (see README.md).
+It only needs Python 3.11+ and git. WITH a robot.toml (the single file of truth: layout, settings and keys) it deploys that
+machine and creates nothing. WITHOUT one it creates hosts/local.toml and secrets/local.env (git-ignored) on the first run.
+For several machines use oblivion.py, one `--host <machine>` per machine (see README.md).
 """
 
 from __future__ import annotations
@@ -33,22 +35,41 @@ if sys.version_info < (3, 11):
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
-from oblivion.config import DeployError, apply_branch_overrides, load_host, load_registry  # noqa: E402
+from oblivion.config import DeployError, apply_branch_overrides, load_host, load_registry, load_topology  # noqa: E402
+from oblivion.envfile import is_secret  # noqa: E402
 from oblivion.manager import Manager, Options  # noqa: E402
 from oblivion.shell import Shell  # noqa: E402
 
 DEFAULT_BRANCH = "feature_ai_claude"
 HOST_NAME = "local"
 HOST_FILE = ROOT / "hosts" / f"{HOST_NAME}.toml"
+ROBOT_FILE = ROOT / "robot.toml"  # when it exists it is THE configuration: HOST_FILE and SECRETS_FILE are not used
 SECRETS_FILE = ROOT / "secrets" / f"{HOST_NAME}.env"
-SERVICES = ("microphone", "stt", "tts", "speaker", "ai-agent", "stepper", "brain")
-# Public OpenAI-compatible endpoints of the providers ai-agent's default profile uses (not secrets).
-AI_AGENT_URLS = {
-    "GROQ_URL": "https://api.groq.com/openai/v1",
-    "GOOGLE_URL": "https://generativelanguage.googleapis.com/v1beta/openai/",
-}
-# LLM provider keys of ai-agent that launch.py copies from the environment into the secrets file.
-AI_AGENT_KEYS = ("GROQ_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "MISTRAL_API_KEY", "COHERE_API_KEY", "GITHUB_PAT")
+# Everything the catalogue knows: the services to run, and ai-agent's LLM provider keys (which launch.py copies from the
+# environment into the machine env file). Nothing about them is repeated here.
+REGISTRY = load_registry(ROOT / "services.toml")
+SERVICES = tuple(REGISTRY.services)
+AI_AGENT_KEYS = tuple(key for key in REGISTRY.services["ai-agent"].require_any if is_secret(key))
+
+
+def robot_machine(args: argparse.Namespace) -> str | None:
+    """The machine of robot.toml this launch is for; None when there is no robot.toml (the generated host file is used)."""
+    wanted = getattr(args, "machine", None)
+    if not ROBOT_FILE.exists():
+        if wanted:
+            raise DeployError(f"--machine {wanted} needs a robot.toml (copy robot.example.toml to {_shown(ROBOT_FILE)})")
+        return None
+    machines = list(load_topology(ROBOT_FILE, REGISTRY).machines)
+    if wanted:
+        if wanted not in machines:
+            raise DeployError(f"machine {wanted!r} is not in robot.toml (has: {', '.join(machines)})")
+        return wanted
+    if len(machines) == 1:
+        return machines[0]
+    raise DeployError(
+        f"robot.toml describes {len(machines)} machines ({', '.join(machines)}): say which one this is, "
+        f"e.g.  python launch.py --machine {machines[0]}"
+    )
 
 
 def _shown(path: Path) -> str:
@@ -60,16 +81,13 @@ def _shown(path: Path) -> str:
 
 def host_file_text(branch: str, stt_engine: str) -> str:
     stt_env = '\n[services.stt.env]\nSTT_ENGINE = "local"\n' if stt_engine == "local" else ""
-    services = "\n".join(f"[services.{name}]" for name in SERVICES if name not in ("stt", "ai-agent"))
-    ai_agent_env = "\n".join(f'{key} = "{url}"' for key, url in AI_AGENT_URLS.items())
+    services = "\n".join(f"[services.{name}]" for name in SERVICES if name != "stt")
     return (
         "# Generated by launch.py. Edit freely: launch.py never overwrites an existing file.\n"
-        "# Every service runs on this machine; Brain reaches the others on 127.0.0.1.\n"
-        f'[host]\nname = "{HOST_NAME}"\nos = "auto"\nworkdir = "~/oblivion"\nbind = "127.0.0.1"\n'
-        f'secrets = "secrets/{HOST_NAME}.env"\n\n[defaults]\nbranch = "{branch}"\n\n'
-        f"{services}\n[services.stt]{stt_env}\n"
-        f"# LLM provider keys go in secrets/{HOST_NAME}.env as AI_AGENT__<KEY NAME>=...; the URLs are public.\n"
-        f"[services.ai-agent]\n[services.ai-agent.env]\n{ai_agent_env}\n"
+        "# Every service runs on this machine, bound to 127.0.0.1; Brain reaches the others there. Ports, URLs and the\n"
+        "# public LLM endpoints come from services.toml; keys and settings go in the env file below.\n"
+        f'[host]\nname = "{HOST_NAME}"\nenv_file = "secrets/{HOST_NAME}.env"\n\n[defaults]\nbranch = "{branch}"\n\n'
+        f"{services}\n[services.stt]{stt_env}"
     )
 
 
@@ -136,7 +154,8 @@ def ensure_files(branch: str, stt_engine: str, dry_run: bool, interactive: bool)
 
 def build_manager(args: argparse.Namespace) -> Manager:
     registry = load_registry(ROOT / "services.toml")
-    host = load_host(str(HOST_FILE), registry)
+    machine = robot_machine(args)
+    host = load_host(machine, registry, ROBOT_FILE) if machine else load_host(str(HOST_FILE), registry)
     if args.branch:
         host = apply_branch_overrides(host, [args.branch])
     options = Options(
@@ -158,8 +177,14 @@ def print_status(manager: Manager) -> int:
 def cmd_up(args: argparse.Namespace) -> int:
     interactive = sys.stdin.isatty()
     os.environ["OBLIVION_CONSOLE_FILTER"] = args.console  # read by oblivion/tee.py in each service window
-    for note in ensure_files(args.branch or DEFAULT_BRANCH, args.stt, args.dry_run, interactive):
-        print(note)
+    machine = robot_machine(args)
+    if machine:
+        if args.stt == "local":
+            raise DeployError('--stt local only shapes the generated host file: with robot.toml set STT_ENGINE = "local" under [env.stt]')
+        print(f"Using {_shown(ROBOT_FILE)}: machine {machine!r} (settings and keys come from that file)")
+    else:
+        for note in ensure_files(args.branch or DEFAULT_BRANCH, args.stt, args.dry_run, interactive):
+            print(note)
     manager = build_manager(args)
     if not args.dry_run:
         errors, warnings = manager.validate(None)
@@ -179,7 +204,8 @@ def cmd_up(args: argparse.Namespace) -> int:
         print("First run: fetching code and installing dependencies (a few minutes)")
         failures = manager.deploy(None)
 
-    code = print_status(manager) if not args.dry_run else 0
+    if not args.dry_run:
+        print_status(manager)
     if failures:
         print("\nFAILED:")
         for failure in failures:
@@ -226,6 +252,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command")
     dry = argparse.ArgumentParser(add_help=False)
     dry.add_argument("--dry-run", action="store_true", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+    dry.add_argument("--machine", metavar="NAME", default=argparse.SUPPRESS, help="the machine of robot.toml this is")
     up = sub.add_parser("up", parents=[dry], help="deploy or update, start everything (default)")
     up.add_argument("--branch", metavar="REF", help=f"branch, tag or commit for every service (default: {DEFAULT_BRANCH})")
     up.add_argument("--stt", choices=["openai", "local"], default="openai", help="speech-to-text engine")
@@ -260,7 +287,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(normalize(sys.argv[1:] if argv is None else argv))
     args.branch = getattr(args, "branch", None)
     try:
-        if not HOST_FILE.exists() and args.command in ("stop", "status", "logs"):
+        if not HOST_FILE.exists() and not ROBOT_FILE.exists() and args.command in ("stop", "status", "logs"):
             raise DeployError("nothing deployed yet: run  python launch.py  first")
         return {"up": cmd_up, "stop": cmd_stop, "status": cmd_status, "logs": cmd_logs}[args.command](args)
     except DeployError as error:

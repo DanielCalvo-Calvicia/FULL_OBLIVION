@@ -137,7 +137,7 @@ def test_a_fresh_machine_without_the_workspace_can_deploy_every_service(tmp_path
     kind, _ = installer.library_source(fresh, "shared-logging")
     assert kind == "wheel_dir"
     for example in (ROOT / "hosts").glob("*.example.toml"):
-        host = load_host(str(example), fresh)
+        host = load_host(str(example), fresh, ROOT / "robot.example.toml")
         manager = Manager(Shell(dry_run=True), host, fresh)
         errors, _ = manager.validate(None)
         assert not [e for e in errors if "shared-logging" in e], f"{example.name}: {errors}"
@@ -167,13 +167,14 @@ def test_a_malformed_remote_url_is_an_error_and_a_loopback_one_a_warning(tmp_pat
     path.write_text(textwrap.dedent("""
         [services.brain]
         [remote]
-        microphone = "192.168.1.20:8000"
+        microphone = "ftp://192.168.1.20:8000"
+        speaker = "the speaker box"
         stt = "http://127.0.0.1:8001"
         tts = "http://tts-box.lan:8002"
-        speaker = "http://speaker-box.lan:8003"
         ai-agent = "http://ai-box.lan:7998"
     """))
     errors, warnings = validate_host(load_host(str(path), registry))
-    assert any("microphone" in e and "not a URL" in e for e in errors)
-    assert not any("tts" in e or "speaker" in e for e in errors)
+    assert any("microphone" in e and "not an address" in e for e in errors)
+    assert any("speaker" in e and "not an address" in e for e in errors)  # a space in an address
+    assert not any("tts" in e or "ai-agent" in e for e in errors)
     assert any("stt" in w and "this machine" in w for w in warnings)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import sys
 import time
@@ -11,7 +12,7 @@ from pathlib import Path
 
 from . import gitops, health, installer, runtime
 from .config import DeployError, Host, Registry, validate_host
-from .envfile import ResolvedEnv, mask, render, resolve_env
+from .envfile import ResolvedEnv, check_env_file, mask, render, resolve_env
 from .shell import Shell
 from .state import State
 
@@ -64,7 +65,10 @@ class Manager:
 
     def resolve(self, name: str) -> ResolvedEnv:
         defaults = self.host.service_dir(name) / ".env.example"
-        return resolve_env(self.host, name, defaults)
+        resolved = resolve_env(self.host, name, defaults)
+        if self.host.services[name].runtime == "native" and runtime.uses_console_window() and "LOG_FORMAT" not in resolved.values:
+            resolved.set("computed", "LOG_FORMAT", "console")  # readable lines in the service's own window
+        return resolved
 
     def env_target(self, name: str) -> Path:
         if self.host.services[name].runtime == "docker":
@@ -183,7 +187,7 @@ class Manager:
             runtime.require_docker(self.shell)
             runtime.docker_start(self.shell, self.host, name, self.env_target(name))
         else:
-            runtime.native_start(self.shell, self.host, name, env)
+            runtime.native_start(self.shell, self.host, name, env, self.env_target(name))
 
     def stop_one(self, name: str) -> None:
         if self.host.services[name].runtime == "docker":
@@ -304,6 +308,11 @@ class Manager:
         except DeployError as error:
             failures.append(f"{name}: rollback failed: {error}")
 
+    def _env_file_warnings(self) -> list[str]:
+        """Lines of the machine env file that nothing reads (wrong prefix, no prefix, ALL__ misuse, missing file)."""
+        examples = {name: self.host.service_dir(name) / ".env.example" for name in self.host.services}
+        return check_env_file(self.host, self.registry.services, examples)
+
     def _library_problems(self, selected: list[str]) -> tuple[list[str], list[str]]:
         needed = {library for name in selected for library in self.host.services[name].spec.libraries}
         return installer.check_libraries(self.registry, needed)
@@ -312,7 +321,7 @@ class Manager:
         errors, warnings = validate_host(self.host)
         library_errors, library_warnings = self._library_problems(selected)
         errors += library_errors + installer.check_python(self.shell, self.host, selected)
-        warnings += library_warnings
+        warnings += library_warnings + self._env_file_warnings()
         for warning in warnings:
             self.shell.say(f"warning: {warning}")
         if errors:
@@ -325,12 +334,45 @@ class Manager:
         selected = self.select(names)
         library_errors, library_warnings = self._library_problems(selected)
         errors += library_errors + installer.check_python(self.shell, self.host, selected)
-        warnings += library_warnings
+        warnings += library_warnings + self._env_file_warnings()
         for name in selected:
             resolved = self.resolve(name)
             errors += resolved.errors
             warnings += resolved.warnings
+        errors += self._stepper_problems()
         return errors, warnings
+
+    def _stepper_problems(self) -> list[str]:
+        """A stepper that cannot start, or arms Brain would silently never move. Only checkable for what runs here.
+
+        Values come from the service's own ``.env.example`` (after the first fetch) plus the host and secrets layers.
+        """
+        if "stepper" not in self.host.services:
+            return []
+        raw = self.resolve("stepper").values.get("STEPPER_CONFIGS", "")
+        if not raw:
+            return []  # nothing fetched yet: the service falls back to its built-in default
+        try:
+            configs = json.loads(raw)
+            if not isinstance(configs, dict) or not configs:
+                raise ValueError("expected a JSON object with one entry per stepper")
+            for ident, pins in configs.items():
+                missing = [pin for pin in ("step", "dir", "en") if not isinstance(pins.get(pin), int)]
+                if missing:
+                    raise ValueError(f"{ident} needs integer BCM pins for {', '.join(missing)}")
+        except (ValueError, AttributeError) as error:
+            return [f"stepper: STEPPER_CONFIGS is invalid ({error}); the stepper would not start"]
+        problems = []
+        if "brain" in self.host.services:
+            brain = self.resolve("brain").values
+            for variable in ("STEPPER_LEFT_ARM_STEPPER_ID", "STEPPER_RIGHT_ARM_STEPPER_ID"):
+                ident = brain.get(variable)
+                if ident and ident not in configs:
+                    problems.append(
+                        f"brain: {variable}={ident} is not a stepper of this machine's STEPPER_CONFIGS "
+                        f"({', '.join(configs)}); that arm would never move"
+                    )
+        return problems
 
     def plan_lines(self, names: list[str] | None) -> list[str]:
         lines = [

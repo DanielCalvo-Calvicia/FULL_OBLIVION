@@ -32,8 +32,10 @@ def current_branch(shell: Shell, repo: Path) -> str | None:
 
 
 def is_dirty(shell: Shell, repo: Path) -> bool:
-    result = _git(shell, repo, "status", "--porcelain", "--untracked-files=no", check=False, mutating=False)
-    return bool(result.stdout.strip())
+    """True when a tracked file was really edited. Rewritten bytecode and a generated ``.env`` do not count (they are
+    restored on a real run, and a dry run, which restores nothing, must not report them either)."""
+    changed = _git(shell, repo, "diff", "--name-only", "-z", "HEAD", check=False, mutating=False).stdout
+    return any(path and not _is_generated(repo, path) for path in changed.split("\0"))
 
 
 def _is_generated_env(repo: Path, relative: str) -> bool:
@@ -46,13 +48,15 @@ def _is_generated_env(repo: Path, relative: str) -> bool:
         return False
 
 
+def _is_generated(repo: Path, relative: str) -> bool:
+    return relative.endswith(".pyc") or "__pycache__/" in relative or _is_generated_env(repo, relative)
+
+
 def restore_generated(shell: Shell, repo: Path) -> None:
     """Files that running or deploying a service rewrites are not local edits: tracked ``__pycache__/*.pyc``
     and a tracked ``.env`` that this tool generated. They are put back, so real edits stay the only thing refused."""
     out = _git(shell, repo, "ls-files", "-m", "-z", check=False, mutating=False).stdout
-    generated = [
-        p for p in out.split("\0") if p.endswith(".pyc") or "__pycache__/" in p or _is_generated_env(repo, p)
-    ]
+    generated = [p for p in out.split("\0") if p and _is_generated(repo, p)]
     if generated and not shell.dry_run:
         _git(shell, repo, "checkout", "--quiet", "--", *generated)
 

@@ -179,3 +179,26 @@ def test_the_generated_env_file_is_restricted_to_its_owner(platform, monkeypatch
     monkeypatch.setattr(Path, "chmod", spy)
     platform.manager().write_env("producer")
     assert modes.get(".env") == 0o600
+
+
+def test_the_settings_reach_a_service_through_its_env_file_and_not_through_its_environment(platform):
+    """The service starts with none of them in its environment; it finds them in the .env next to its code."""
+    assert platform.manager().deploy(None) == []
+    for service in ("producer", "consumer"):
+        version = platform.get(service, "/version")
+        assert version["started_with"] == [], f"{service} was started with settings in its environment"
+    assert platform.get("producer", "/version")["env"]["T_MARK"] == "hello"  # ...and still got them, from the file
+    assert "PRODUCER_BASE_URL" in platform.get("consumer", "/version")["env"]
+    env_file = (platform.workdir / "services" / "producer_microservice" / ".env").read_text()
+    assert f"SERVICE_PORT={platform.ports['producer']}" in env_file and "T_MARK=hello" in env_file
+
+
+def test_a_variable_exported_in_the_operators_shell_cannot_beat_the_env_file(platform, monkeypatch):
+    """dotenv never overrides a variable that is already set, so the tool must not hand such a variable on."""
+    monkeypatch.setenv("T_MARK", "from-the-shell")
+    monkeypatch.setenv("SERVICE_PORT", "9")  # would make the service listen on the wrong port
+    monkeypatch.setenv("T_UNRELATED", "kept")  # something the file does not define is inherited as usual
+    assert platform.manager().deploy(None) == []
+    env = platform.get("producer", "/version")["env"]
+    assert env["T_MARK"] == "hello"
+    assert env["T_UNRELATED"] == "kept"

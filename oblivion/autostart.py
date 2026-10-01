@@ -11,7 +11,10 @@ from .shell import Shell
 
 def _cli_command(host: Host, action: str) -> list[str]:
     script = Path(__file__).resolve().parent.parent / "oblivion.py"
-    return [sys.executable, str(script), action, "--host", str(host.source)]
+    command = [sys.executable, str(script), action, "--host", host.ref or str(host.source)]
+    if host.topology is not None:  # a machine of the topology: say which file, so the boot start does not depend on the cwd
+        command += ["--robot", str(host.topology)]
+    return command
 
 
 def systemd_unit(host: Host) -> str:

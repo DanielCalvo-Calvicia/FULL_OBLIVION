@@ -14,6 +14,7 @@ from .config import DeployError, Host
 from .shell import Shell
 
 STOP_TIMEOUT_SECONDS = 10.0
+CONTAINER_ENV_FILE = "/app/.env"  # the Dockerfile's WORKDIR is /app
 
 
 def container_name(name: str) -> str:
@@ -52,16 +53,35 @@ def native_running(host: Host, name: str) -> bool:
     return pid is not None and _pid_alive(pid)
 
 
-def _use_console_window() -> bool:
+def uses_console_window() -> bool:
     """Windows shows each service in its own console window. Set OBLIVION_CONSOLE=0 for headless (tests, CI)."""
     return sys.platform == "win32" and os.environ.get("OBLIVION_CONSOLE", "1") != "0"
 
 
-def native_start(shell: Shell, host: Host, name: str, env: dict[str, str]) -> None:
+RUNNER = Path(__file__).with_name("service_runner.py")
+
+
+def child_environment(settings: dict[str, str]) -> dict[str, str]:
+    """The environment a service starts with: this process's, minus every name the service's ``.env`` defines.
+
+    The settings live in the ``.env`` file only, and the services load it with ``override=False`` (a variable that is
+    already set wins over the file). So a same-named variable on the machine or in the operator's shell, say an
+    exported ``GROQ_API_KEY``, must not reach the service: it would silently beat the file.
+    """
+    normalise = str.upper if os.name == "nt" else str  # Windows variable names are case-insensitive
+    defined = {normalise(key) for key in settings}
+    kept = {key: value for key, value in os.environ.items() if normalise(key) not in defined}
+    return {**kept, "PYTHONUNBUFFERED": "1"}  # an interpreter setting (log lines appear at once), not a service setting
+
+
+def native_start(shell: Shell, host: Host, name: str, env: dict[str, str], env_file: Path) -> None:
+    """Start the service. ``env`` only says which names the ``.env`` file defines; it is not passed on."""
     spec = host.services[name].spec
     service_dir = host.service_dir(name)
     python = shell.python_of(host.venv_dir(name))
     command = [python, service_dir / spec.entry]
+    if not spec.dotenv:  # the service cannot read its .env: the runner does, then starts it
+        command = [python, RUNNER, "--env-file", env_file, "--", service_dir / spec.entry]
     if shell.dry_run:
         shell.say(f"[dry-run] start {name}: {' '.join(map(str, command))}  (logs: {host.log_file(name)})")
         return
@@ -72,11 +92,10 @@ def native_start(shell: Shell, host: Host, name: str, env: dict[str, str]) -> No
     host.pid_file(name).parent.mkdir(parents=True, exist_ok=True)
     log = open(host.log_file(name), "ab")  # noqa: SIM115 - handed to the child process
     log.write(f"\n--- start {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n".encode())
-    process_env = {**os.environ, **env, "PYTHONUNBUFFERED": "1"}
-    if _use_console_window():
-        # Own window per service, showing the same output that goes to the log file. Readable one-line format.
+    process_env = child_environment(env)
+    if uses_console_window():
+        # Own window per service, showing the same output that goes to the log file.
         log.close()
-        process_env.setdefault("LOG_FORMAT", "console")
         wrapper = [
             sys.executable, Path(__file__).with_name("tee.py"), "--name", name,
             "--log", host.log_file(name), "--pid-file", host.pid_file(name), "--", *command,
@@ -144,9 +163,13 @@ def docker_start(shell: Shell, host: Host, name: str, env_file: Path) -> None:
     command = [
         "docker", "run", "-d", "--name", container_name(name), "--restart", "unless-stopped",
         "-p", f"{host.bind}:{instance.port}:{instance.port}",
-        "--env-file", env_file,
         "--add-host", "host.docker.internal:host-gateway",
     ]
+    if instance.spec.dotenv:
+        # The file itself, read-only, where the service's own dotenv loading finds it: no variables in the container.
+        command += ["--mount", f"type=bind,source={env_file},target={CONTAINER_ENV_FILE},readonly"]
+    else:
+        command += ["--env-file", env_file]  # a service that cannot read a .env: the only way to hand it its settings
     if instance.spec.audio and host.os_family == "linux":
         command += ["--device", "/dev/snd"]
     shell.run([*command, image_name(name)])

@@ -72,7 +72,8 @@ def main(argv: list[str]) -> int:
     if mode != "all":
         shown = "errors only" if mode == "errors" else "errors and stream events only"
         print(f"(console shows {shown}; the full log is in {args.log})", flush=True)
-    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    # OBLIVION_* is this tool's own setting for this window; the service is not told about it
+    env = {**{k: v for k, v in os.environ.items() if not k.startswith("OBLIVION_")}, "PYTHONIOENCODING": "utf-8"}
     with open(args.log, "ab") as log:
         try:
             child = subprocess.Popen(  # noqa: S603
