@@ -9,7 +9,7 @@ Repo `FULL_OBLIVION`. A stdlib-only Python 3.11+ CLI (`oblivion.py`, package `ob
 - `hosts/<machine>.toml` per-machine layout (`*.example.toml` are committed, real ones are git-ignored). `secrets/*.env` per machine, git-ignored.
 - `oblivion/`: `config` (registry/host, validation), `envfile` (layered env), `gitops` (clone/checkout branch, tag, commit), `installer` (venv + requirements, `-e ../` lines skipped), `runtime` (native processes, Docker), `manager` (deploy, update with rollback), `health`, `autostart`, `cli`.
 - `docker/service.Dockerfile` generic image. `tests/` pytest with real git repos and processes. `wheels/` the committed shared-logging wheel; `scripts/bundle_shared_logging.py` rebuilds it.
-- `services.toml` also carries `min_python` (checked before installing), `require_any` (warning), a `raspberry` requirements key, and the default branch (`feature_ai_claude`, because `main` lacks the vendored contracts wheel).
+- `services.toml` also carries `prepare` (a script run with the service's python after its `.env` is written, by `Manager.prepare` on deploy, update and rollback; Docker runs it while building via the `PREPARE` build arg; a failure only warns; tts uses it to fetch the Piper voice, which is in neither git nor pip), `min_python` (checked before installing), `require_any` (warning), a `raspberry` requirements key, and the default branch (`feature_ai_claude`, because `main` lacks the vendored contracts wheel).
 
 ## Rules
 

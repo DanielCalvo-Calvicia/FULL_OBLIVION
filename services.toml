@@ -29,6 +29,9 @@ wheel_dir = "wheels"
 #   requirements      requirements file per OS family: windows, linux, and optionally raspberry (used on a
 #                     Raspberry Pi instead of linux); when the OS has no file, the other one is used with a warning
 #   libraries         shared libraries to install after the requirements
+#   prepare           script (plus arguments, relative to the service folder) run with the service's python after its
+#                     .env is written, for what cannot ship in git or pip (tts: the Piper voice). A failure only
+#                     warns. Docker images run it while building, with the default settings
 #   apt               Debian/Raspberry Pi OS packages needed by the service (--system-deps)
 #   audio             needs a sound device: cannot run in Docker on Windows
 #   consumes          services this one calls -> env var that receives their base URL
@@ -90,7 +93,9 @@ port = 8002
 ready = "/available"
 libraries = ["shared-logging"]
 requirements = { windows = "requirements.windows.txt", linux = "requirements.linux.txt" }
-apt = ["espeak", "espeak-data", "libespeak1"]
+apt = ["espeak", "espeak-data", "libespeak1"]   # the pyttsx3 fallback voice; Piper brings its own espeak-ng
+# Fetches the Piper voice (about 60 MB, not in git or pip) the .env asks for; the service falls back to pyttsx3 without it
+prepare = ["scripts/fetch_voice.py"]
 
 [services.speaker]
 git = "https://github.com/DanielCalvo-Calvicia/speaker_microservice.git"

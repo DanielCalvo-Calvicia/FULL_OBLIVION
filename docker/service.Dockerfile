@@ -20,5 +20,10 @@ COPY . /app
 RUN pip install --no-cache-dir -r requirements.docker.txt \
     && if ls /app/libs/*.whl >/dev/null 2>&1; then pip install --no-cache-dir /app/libs/*.whl; fi
 
+# The service's `prepare` script (services.toml), e.g. tts' Piper voice. It may fail (no network while building):
+# the service then starts on its fallback and says so in its log.
+ARG PREPARE=""
+RUN if [ -n "$PREPARE" ]; then python $PREPARE || echo "warning: prepare step failed: $PREPARE"; fi
+
 # The port is set by SERVICE_PORT in the --env-file; the CLI publishes it on the chosen address.
 CMD ["python", "main.py"]

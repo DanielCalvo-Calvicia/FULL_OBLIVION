@@ -34,6 +34,7 @@ class ServiceSpec:
     requirements: dict[str, str] = field(default_factory=dict)
     libraries: tuple[str, ...] = ()
     apt: tuple[str, ...] = ()
+    prepare: tuple[str, ...] = ()  # script (and its arguments) run with the service's python once its .env is written
     audio: bool = False
     consumes: dict[str, str] = field(default_factory=dict)
     optional_consumes: tuple[str, ...] = ()
@@ -270,6 +271,7 @@ def load_registry(path: Path) -> Registry:
                 requirements=dict(raw.get("requirements", {})),
                 libraries=tuple(raw.get("libraries", ())),
                 apt=tuple(raw.get("apt", ())),
+                prepare=tuple(raw.get("prepare", ())),
                 audio=bool(raw.get("audio", False)),
                 consumes=dict(raw.get("consumes", {})),
                 optional_consumes=tuple(raw.get("optional_consumes", ())),

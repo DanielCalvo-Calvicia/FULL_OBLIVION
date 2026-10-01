@@ -13,7 +13,7 @@ troubleshooting. This file explains the tool.
 
 ```text
 oblivion.py / oblivion.sh / oblivion.ps1   the CLI (stdlib only)
-services.toml                              catalogue: repo, port, requirements, apt packages of every service
+services.toml                              catalogue: repo, port, requirements, apt packages, `prepare` step of every service
 docs/USER_GUIDE.md                         step-by-step instructions for deploying and operating (start here)
 docs/DEPLOYMENT.md                         the reference manual: every variable, per-service settings, limits
 robot.toml                                 THE single file of truth: machines, addresses, services AND every setting and key (copy robot.example.toml; git-ignored)

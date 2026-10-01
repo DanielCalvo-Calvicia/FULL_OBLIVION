@@ -33,7 +33,7 @@ environment. **Brain is the only coordinator**: it calls the others, and they ne
 | microphone | 8000 | captures what you say | a microphone |
 | speaker | 8003 | plays the answer | a speaker or headphones |
 | stt | 8001 | speech to text | an OpenAI key, or the local Whisper model |
-| tts | 8002 | text to speech | a system voice (Windows) or espeak (Linux) |
+| tts | 8002 | text to speech | the Piper voice (downloaded for you on the first deploy, needs internet once) |
 | ai-agent | 7998 | decides the reply (conversation-flow) and the arm movements (motion-flow) | at least one LLM provider key; **Python 3.12+** |
 | stepper | 8005 | turns the two arm motors | a Raspberry Pi wired to the motors (or simulation) |
 | brain | 7999 | runs the voice pipeline | the six above reachable |
@@ -355,8 +355,8 @@ curl http://<address>:7999/health             # brain
 
 ### 8.2 The voice test (headphones on)
 
-1. Say "Hello, how are you?" and pause for about two seconds. You should hear a spoken answer written by ai-agent, not
-   an echo of your words.
+1. Say "Hello, how are you?" and pause for about two seconds. You should hear "Message received." at once, then a spoken
+   answer written by ai-agent, not an echo of your words. If the answer takes a while you hear "Thinking." every 2 seconds.
 2. Say "Move your left arm ninety degrees forward." You should hear a confirmation and see a rotate request in the
    stepper's log (or the arm move, if the motors are live).
 3. Say something impossible ("Fly to the moon"): ai-agent should refuse politely.

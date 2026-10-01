@@ -36,7 +36,7 @@ Brain talks to the stepper. There is no authentication anywhere, so keep every p
 |---|---|---|---|---|---|
 | microphone | `microphone_microservice` | 8000 | `SERVICE_PORT` | streams captured audio (PCM16 mono) | a sound input device |
 | stt | `stt_microservice` | 8001 | `SERVICE_PORT` | speech to text (OpenAI Whisper API or local faster-whisper) | OpenAI key **or** local model |
-| tts | `tts_microservice` | 8002 | `SERVICE_PORT` | text to speech (Windows SAPI / espeak) | a system voice |
+| tts | `tts_microservice` | 8002 | `SERVICE_PORT` | text to speech (Piper neural voice, droid effect; pyttsx3 fallback) | the Piper voice file (about 60 MB, fetched at deploy) |
 | speaker | `speaker_microservice` | 8003 | `SERVICE_PORT` | plays audio | a sound output device |
 | ai-agent | `ai-agent` | 7998 | `AI_AGENT_PORT` | decides: two agents ("flows") in one service, conversation-flow writes the reply and motion-flow decides the arm movements | an LLM provider key |
 | stepper | `stepper_microservice` | 8005 | `SERVICE_PORT` | drives the two arm motors | Raspberry Pi GPIO, or mock mode |
@@ -45,10 +45,7 @@ Brain talks to the stepper. There is no authentication anywhere, so keep every p
 `aws_microservice` (Go, port 8080) is not part of the running robot and is not covered here.
 
 The voice flow: microphone → Brain → STT → Brain (accumulates what was said) → ai-agent → Brain → TTS →
-Brain → speaker. For every utterance Brain first asks ai-agent's motion-flow which arm movements were asked for
-(or which detail is missing: it then speaks that question), then ai-agent's conversation-flow for the reply.
-Brain sends the movements, in order, to the stepper in the background; a stepper failure never silences the spoken
-reply and stops the rest of that sequence. If ai-agent is unreachable Brain speaks an apology.
+Brain → speaker. For every utterance Brain says "Message received." at once, then asks ai-agent's flows one after the other, in the order of `AI_AGENT_FLOWS` (conversation-flow, then motion-flow): conversation-flow writes the reply and motion-flow, only when conversation-flow has ended, decides the arm movements (or asks which detail is missing: Brain speaks that question and the answer goes only to motion-flow). While they work Brain says "Thinking." every 2 seconds; only when all of them have ended it speaks the answer and sends the movements, in order, to the stepper in the background. A stepper failure never silences the spoken reply and stops the rest of that sequence. If ai-agent is unreachable Brain speaks an apology.
 
 Library: `shared-logging` is imported by every service. `contracts` needs nothing: each service carries the
 wheel in its own `vendor/` folder and its requirements file installs it.
@@ -139,7 +136,7 @@ Sections 4 to 6 are exactly this route. It is also what you use to debug one ser
 | Python | 3.14 is what the workspace uses and tests run on; the deploy tool itself needs 3.11+; **ai-agent needs 3.12+** | 3.11+ (`python3`, `python3-venv`); **ai-agent needs 3.12+** | 3.11 ships with Bookworm (`sudo apt install python3 python3-venv git`): fine for everything **except ai-agent** |
 | git | required for routes A and B | same | same |
 | Sound | a working default input and output | ALSA/PortAudio | USB microphone, speaker or I2S DAC |
-| System packages | none | `libportaudio2 portaudio19-dev` (microphone, speaker); `libsndfile1` (speaker); `espeak espeak-data libespeak1` (tts) | same as Linux |
+| System packages | none | `libportaudio2 portaudio19-dev` (microphone, speaker); `libsndfile1` (speaker); `espeak espeak-data libespeak1` (tts: only the pyttsx3 fallback voice, Piper brings its own) | same as Linux |
 | Voices | Windows SAPI voices (Helena is Spanish, Zira is English) | espeak | espeak |
 | Disk / network | the local Whisper model downloads once (hundreds of MB); LLM and OpenAI calls need internet | | |
 
@@ -441,8 +438,16 @@ first start needs internet and takes a while; later starts are offline.
 
 | Variable | Default | Fill in |
 |---|---|---|
-| `TTS_SPEECH_RATE` | `140` | words per minute |
-| `TTS_VOICE_NAME` | `Zira` | text the voice name must contain; otherwise the first English voice is used. On Windows Zira is English; the default system voice may be Spanish |
+| `TTS_ENGINE` | `piper` | `piper` (neural British "droid butler" voice) or `pyttsx3` (the old Windows SAPI / espeak voice). If the Piper voice is missing or cannot load, the service logs an error and uses pyttsx3, so Brain's preflight never hangs on a voice download |
+| `TTS_PIPER_VOICE` | `en_GB-alan-medium` | Piper voice name. The deploy tool downloads it (`scripts/fetch_voice.py`, about 60 MB, into `models/` of the service, git-ignored) after it writes the `.env`, so a voice set in `robot.toml` is the one fetched. The machine needs internet only for that first download; later deploys find the file and skip it |
+| `TTS_PIPER_MODEL_DIR` | `models` | folder of the voice files, relative to the service folder |
+| `TTS_PIPER_SPEED` | `1.0` | speaking pace multiplier (`1.1` = a little brisker) |
+| `TTS_PITCH_SEMITONES` | `2.0` | pitch lift of the voice, the pace is kept (`0` = as recorded) |
+| `TTS_DROID_EFFECT` | `0.5` | metallic effect strength: `0` off, `0.5` light, `1` obvious, `2` maximum |
+| `TTS_SPEECH_RATE` | `140` | pyttsx3 only: words per minute |
+| `TTS_VOICE_NAME` | `Zira` | pyttsx3 only: text the voice name must contain; otherwise the first English voice is used. On Windows Zira is English; the default system voice may be Spanish |
+
+Voice files: `deploy` and `update` run the service's `prepare` step (`services.toml`) once its `.env` exists. For tts it downloads the voice to a temporary folder, loads it once to prove it is intact and only then moves it into place, so an interrupted download never leaves a broken voice. A failed download (no internet) is a warning: the service starts on the pyttsx3 voice and its log says `Piper unavailable; falling back to pyttsx3`; run `deploy` again once online. To fetch by hand: `windows\Scripts\python.exe scripts\fetch_voice.py` from `tts_microservice` (Linux: `bin/python`). **Docker** bakes the default voice into the image while building (no `.env` exists then): a different `TTS_PIPER_VOICE` needs the voice on the image or `TTS_ENGINE=pyttsx3`. A Raspberry Pi 4 or newer is the realistic minimum for Piper (a PC renders about 25x faster than real time; a Pi 3 would lag).
 
 #### speaker
 
@@ -504,7 +509,9 @@ time on real hardware, move a small angle with the arm unloaded and be ready to 
 | `MICROPHONE_BASE_URL`, `STT_BASE_URL`, `TTS_BASE_URL`, `SPEAKER_BASE_URL` | `http://127.0.0.1:<port>` | **computed by the deploy tool** from `robot.toml` (or the host file's `[remote]`). Set by hand only in route C when a service is on another machine |
 | `AI_AGENT_BASE_URL` | `http://127.0.0.1:7998` | same |
 | `STEPPER_BASE_URL` | `http://127.0.0.1:8005` | same; optional, without a stepper the arms simply do not move |
-| `*_ENDPOINT` (`MICROPHONE_START/STOP/STREAM`, `STT_SET_STREAM/GET_STREAM/BATCH`, `TTS_SET_STREAM/STREAM`, `SPEAKER_PLAY_STREAM`, `AI_AGENT_START_SESSION/MESSAGE/END_SESSION` (conversation-flow, `/conversation-flow/session/...`), `AI_AGENT_MOTION_START_SESSION/MESSAGE/END_SESSION` (motion-flow, `/motion-flow/session/...`)) | the routes the services expose | leave as they are |
+| `*_ENDPOINT` (`MICROPHONE_START/STOP/STREAM`, `STT_SET_STREAM/GET_STREAM/BATCH`, `TTS_SET_STREAM/STREAM`, `SPEAKER_PLAY_STREAM`) | the routes the services expose | leave as they are |
+| `AI_AGENT_FLOWS` | `conversation-flow,motion-flow` | the flows of ai-agent Brain asks, **one after the other, in this order** (each only when the one before has ended). Their routes are `/<flow>/session/...`. Known flows: `conversation-flow`, `motion-flow`; an unknown name stops Brain at startup |
+| `PROGRESS_RECEIVED_MESSAGE`, `PROGRESS_THINKING_MESSAGE`, `PROGRESS_THINKING_INTERVAL_SECONDS` | `Message received.`, `Thinking.`, `2` | what Brain says while the flows work: the first at once when an utterance arrives, the second every N seconds until every flow has ended (the first one after N seconds, so a quick answer stays quiet). An empty text says nothing; an interval of 0 turns `Thinking.` off |
 | `STEPPER_ROTATE_ENDPOINT_TEMPLATE` | `/control/{stepper_id}/rotate` | leave |
 | `STEPPER_LEFT_ARM_STEPPER_ID`, `STEPPER_RIGHT_ARM_STEPPER_ID` | `stepper_1`, `stepper_2` | must be ids that exist in the stepper's `STEPPER_CONFIGS` |
 | `STEPPER_DEFAULT_RPM` | `15` | arm speed |
@@ -560,13 +567,14 @@ names when services are on different machines; never assume `127.0.0.1` there.
 
 Use **headphones** (the robot would otherwise hear itself). With every service healthy:
 
-1. Say "Hello, how are you?" and pause about two seconds. You should hear a spoken answer written by
-   ai-agent (not an echo of your words).
+1. Say "Hello, how are you?" and pause about two seconds. You should hear "Message received." at once, then (if the
+   answer takes more than 2 seconds) "Thinking." every 2 seconds, then a spoken answer written by ai-agent (not an echo
+   of your words).
 2. Say "Move your left arm ninety degrees forward." You should hear a confirmation and, with the stepper in
    mock mode, see a rotate request in the stepper log (`py -3 launch.py logs stepper` or its console window).
    Say "Move your left arm ninety degrees and then bring it back": two rotate requests, in that order (the
-   second one the opposite way). Say "Move your arm": the robot asks which arm and how far, and your answer
-   completes the movement.
+   second one the opposite way). Say "Move your arm": the robot answers, then asks which arm and how far, and your answer
+   goes only to the movement agent and completes the movement.
 3. Say something impossible ("Fly to the moon"). ai-agent should refuse politely.
 4. Stop ai-agent, speak again: Brain answers with its spoken apology and keeps running. Start ai-agent, speak
    again: the conversation works without restarting Brain.
@@ -711,7 +719,8 @@ py -3 oblivion.py autostart install --host mypc             # systemd user unit,
 | STT fails at start with `openai` engine | `OPENAI_API_KEY` missing in `robot.toml` (under `[env]` or `[env.stt]`); or use `STT_ENGINE = "local"` |
 | STT hears nothing / wrong text | wrong `MICROPHONE_TARGET_KEYWORDS` input, or `STT_LANGUAGE` does not match the spoken language |
 | Speaker fails to open a device (`PaErrorCode -9999`, "Blocking API not supported") | the auto-selected device is a WDM-KS one. List devices and set `SPEAKER_DEVICE_INDEX` to an MME/WASAPI output: `windows\Scripts\python.exe -c "import sounddevice as sd; print(sd.query_devices())"` |
-| TTS speaks the wrong language | Windows default voice is Spanish: set `TTS_VOICE_NAME=Zira` (already the default) or another installed English voice |
+| TTS speaks with the old robotic voice | the Piper voice is missing, so the service fell back to pyttsx3 (its log says `Piper unavailable`). Run `scripts/fetch_voice.py` from the service folder, or `deploy` again with internet, then restart tts |
+| TTS speaks the wrong language (pyttsx3 fallback) | Windows default voice is Spanish: set `TTS_VOICE_NAME=Zira` (already the default) or another installed English voice |
 | Robot answers its own voice | speakers and microphone in the same room: use headphones |
 | Stepper install fails on Python 3.14 with a Rust/`pydantic-core` error | old exact pins; the Windows requirements file now uses lower bounds. Update the stepper code |
 | `deploy` / `validate` says `library 'shared-logging' is not available on this machine` | neither the workspace checkout nor `wheels/shared_logging-*.whl` exists: the clone of this repository is incomplete (`git status`, `git pull`), or run `scripts/bundle_shared_logging.py` on a machine that has the workspace and commit the wheel |

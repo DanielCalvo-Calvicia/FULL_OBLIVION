@@ -154,6 +154,8 @@ def docker_build(shell: Shell, host: Host, name: str, context: Path) -> None:
     args = ["docker", "build", "-t", image_name(name), "-f", dockerfile, context]
     if spec.apt:
         args[2:2] = ["--build-arg", f"APT_PACKAGES={' '.join(spec.apt)}"]
+    if spec.prepare:  # runs while building, with the service's default settings (no .env exists yet)
+        args[2:2] = ["--build-arg", f"PREPARE={' '.join(spec.prepare)}"]
     shell.run(args)
 
 

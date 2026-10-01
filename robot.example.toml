@@ -71,7 +71,11 @@ OPENAI_API_KEY = ""
 # ================================================================================================
 [env.brain]
 # Computed by the deploy tool, not set here: AI_AGENT_BASE_URL MICROPHONE_BASE_URL SERVICE_HOST SERVICE_PORT SPEAKER_BASE_URL STEPPER_BASE_URL STT_BASE_URL TTS_BASE_URL
+#AI_AGENT_FLOWS = 'conversation-flow,motion-flow'
 #MICROSERVICE_READY_POLL_INTERVAL_SECONDS = 2
+#PROGRESS_RECEIVED_MESSAGE = 'Message received.'
+#PROGRESS_THINKING_INTERVAL_SECONDS = 2
+#PROGRESS_THINKING_MESSAGE = 'Thinking.'
 #STARTUP_PREFLIGHT_ENABLED = true
 #STARTUP_PREFLIGHT_TIMEOUT_SECONDS = 60
 #STEPPER_DEFAULT_RPM = 15
@@ -104,9 +108,23 @@ OPENAI_API_KEY = ""
 # ================================================================================================
 [env.tts]
 # Computed by the deploy tool, not set here: SERVICE_HOST SERVICE_PORT
-# Speech speed in words per minute
+# Piper droid effect strength: 0 = off, 0.5 = light metal (default), 1 = obvious, 2 = maximum
+#TTS_DROID_EFFECT = 0.5
+# Engine: piper (neural voice, default) or pyttsx3 (the old Windows SAPI / espeak voice). If the Piper voice
+# is missing or cannot load, the service logs an error and uses pyttsx3.
+#TTS_ENGINE = 'piper'
+# Folder holding <voice>.onnx and <voice>.onnx.json (relative to the service folder)
+#TTS_PIPER_MODEL_DIR = 'models'
+# Piper speaking speed multiplier (1.0 = the voice's own pace, 1.1 = a little brisker)
+#TTS_PIPER_SPEED = 1.0
+# Piper voice name. The deployment tool fetches it (scripts/fetch_voice.py, about 60 MB); by hand: python
+# scripts/fetch_voice.py
+#TTS_PIPER_VOICE = 'en_GB-alan-medium'
+# Piper pitch lift in semitones (0 = the voice as recorded). The pace is kept
+#TTS_PITCH_SEMITONES = 2.0
+# pyttsx3 only: speech speed in words per minute
 #TTS_SPEECH_RATE = 140
-# Preferred voice: used if its name contains this text, otherwise the first English voice
+# pyttsx3 only: preferred voice, used if its name contains this text, otherwise the first English voice
 #TTS_VOICE_NAME = 'Zira'
 
 # ================================================================================================

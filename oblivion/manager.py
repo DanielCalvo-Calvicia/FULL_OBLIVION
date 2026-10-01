@@ -95,6 +95,23 @@ class Manager:
 
     # ------------------------------------------------------------------ prepare
 
+    def prepare(self, name: str) -> None:
+        """Run the service's ``prepare`` script (services.toml) with its own python, after its .env is written.
+
+        For what cannot ship in git or pip, e.g. tts' Piper voice (about 60 MB). It sees the final settings, so a
+        voice chosen in robot.toml is the one fetched. A failure is a warning: the service has a fallback and a
+        machine that is offline during a deploy must still come up. Docker images run it while building instead.
+        """
+        instance = self.host.services[name]
+        if instance.runtime != "native" or not instance.spec.prepare:
+            return
+        python = self.shell.python_of(self.host.venv_dir(name))
+        result = self.shell.run(
+            [python, *instance.spec.prepare], cwd=self.host.service_dir(name), check=False
+        )
+        if result.returncode != 0:
+            self.shell.say(f"warning: {name}: `{' '.join(instance.spec.prepare)}` failed ({result.returncode}); see above")
+
     def fetch_code(self, name: str) -> tuple[str | None, str | None]:
         instance = self.host.services[name]
         self.shell.say(f"{name}: code {instance.spec.git} @ {instance.branch}")
@@ -236,6 +253,7 @@ class Manager:
                 previous, commit = self.fetch_code(name)
                 self.install(name)
                 env = self.write_env(name)
+                self.prepare(name)
                 self.stop_one(name)
                 self.start_one(name, env)
                 ok, detail = self.wait_healthy(name)
@@ -265,6 +283,7 @@ class Manager:
                 code_replaced = after != before
                 self.install(name)
                 env = self.write_env(name)
+                self.prepare(name)
                 self.start_one(name, env)
                 ok, detail = self.wait_healthy(name)
                 if not ok:
@@ -299,6 +318,7 @@ class Manager:
             gitops.restore(self.shell, self.host.service_dir(name), commit)
             self.install(name)
             env = self.write_env(name)
+            self.prepare(name)
             if restart:
                 self.start_one(name, env)
                 ok, detail = self.wait_healthy(name)
