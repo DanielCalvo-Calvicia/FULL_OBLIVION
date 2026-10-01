@@ -21,7 +21,7 @@ wheel_dir = "wheels"
 # Common keys of [services.<name>]
 #   git               repository to clone
 #   branch            default branch/tag/commit (a host file or --branch can override it). It is
-#                     feature_ai_claude because the vendored contracts wheel every service needs is not on
+#                     feature_ai_claude_2 because the vendored contracts wheel every service needs is not on
 #                     main yet: change it to main once the branches are merged
 #   port              default HTTP port (SERVICE_PORT)
 #   health / ready    endpoints checked after start ("ready" is optional)
@@ -51,7 +51,7 @@ wheel_dir = "wheels"
 
 [services.brain]
 git = "https://github.com/DanielCalvo-Calvicia/brain_microservice.git"
-branch = "feature_ai_claude"
+branch = "feature_ai_claude_2"
 port = 7999
 libraries = ["shared-logging"]
 requirements = { windows = "requirements.windows.txt", linux = "requirements.linux.txt" }
@@ -64,7 +64,7 @@ internal = ["*_ENDPOINT", "STEPPER_ROTATE_ENDPOINT_TEMPLATE", "PROVIDER_NAME", "
 
 [services.microphone]
 git = "https://github.com/DanielCalvo-Calvicia/microphone_microservice.git"
-branch = "feature_ai_claude"
+branch = "feature_ai_claude_2"
 port = 8000
 ready = "/available"
 audio = true
@@ -75,7 +75,7 @@ dotenv = false   # microphone_microservice has no python-dotenv yet; set true on
 
 [services.stt]
 git = "https://github.com/DanielCalvo-Calvicia/stt_microservice.git"
-branch = "feature_ai_claude"
+branch = "feature_ai_claude_2"
 port = 8001
 ready = "/available"
 libraries = ["shared-logging"]
@@ -88,7 +88,7 @@ when = { STT_ENGINE = "openai" }
 
 [services.tts]
 git = "https://github.com/DanielCalvo-Calvicia/tts_microservice.git"
-branch = "feature_ai_claude"
+branch = "feature_ai_claude_2"
 port = 8002
 ready = "/available"
 libraries = ["shared-logging"]
@@ -99,7 +99,7 @@ prepare = ["scripts/fetch_voice.py"]
 
 [services.speaker]
 git = "https://github.com/DanielCalvo-Calvicia/speaker_microservice.git"
-branch = "feature_ai_claude"
+branch = "feature_ai_claude_2"
 port = 8003
 ready = "/available"
 audio = true
@@ -109,14 +109,14 @@ apt = ["libportaudio2", "portaudio19-dev", "libsndfile1"]
 
 [services.stepper]
 git = "https://github.com/DanielCalvo-Calvicia/stepper_microservice.git"
-branch = "feature_ai_claude"
+branch = "feature_ai_claude_2"
 port = 8005
 libraries = ["shared-logging"]
 # The Linux file pins RPi.GPIO, which only builds on a Raspberry Pi (and needs a compiler there). Any other
 # Linux runs the mock adapter, so it uses the Windows file, which has no GPIO library.
 requirements = { windows = "requirements.windows.txt", linux = "requirements.windows.txt", raspberry = "requirements.linux.txt" }
 apt = ["build-essential", "python3-dev"]   # to build RPi.GPIO on the Pi
-internal = ["VSCODE_*"]   # read by its code (development only), not in its .env.example
+internal = ["VSCODE_*"]   # read by the shared logging package (development only), not in its .env.example
 [services.stepper.env]
 # The stepper compares this to the string "1" and nothing else: "true" would NOT select the mock, and on a
 # Raspberry Pi it would drive the real motors. Real GPIO only on the machine wired to them: set "0" in that host file.
@@ -127,7 +127,7 @@ MOCK_HARDWARE = "1"
 # .env from its folder and needs at least one LLM provider key (see docs/DEPLOYMENT.md, "ai-agent").
 [services.ai-agent]
 git = "https://github.com/DanielCalvo-Calvicia/ai-agent.git"
-branch = "feature_ai_claude"
+branch = "feature_ai_claude_2"
 port = 7998
 ready = "/available"           # reports is_available=false until an LLM provider key or OLLAMA_URL is configured
 folder = "ai-agent"

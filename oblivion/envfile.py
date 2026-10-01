@@ -15,7 +15,8 @@ Layers, lowest to highest priority (a later layer overrides an earlier one):
 5. ``env file ALL``   ``ALL__<NAME>=value`` lines of the machine env file
 6. ``host``           ``[services.<name>.env]`` in a host file
 7. ``robot``          ``[env.<service>]`` of the robot file
-8. ``env file``       ``<SERVICE>__<NAME>=value`` lines of the machine env file
+8. ``service file``   ``[env]`` of ``services/<service>.toml``
+9. ``env file``       ``<SERVICE>__<NAME>=value`` lines of the machine env file
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from .config import Host, ServiceInstance, ServiceSpec
 from .envparse import parse_env, render_value
 
 LAYER_ROBOT_ALL, LAYER_ROBOT = "robot ALL", "robot"
+LAYER_SERVICE = "service file"  # services/<service>.toml [env]: more specific than robot.toml, so it wins over it
 LAYER_ALL, LAYER_FILE = "env file ALL", "env file"
 # TRACE_EXPORT_HEADERS is where a collector's Authorization header goes
 _SECRET_NAME = re.compile(r"KEY(?!WORDS)|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|GITHUB_PAT|HEADERS", re.IGNORECASE)
@@ -226,6 +228,8 @@ def resolve_env(host: Host, name: str, defaults_file: Path | None) -> ResolvedEn
                 resolved.warnings.append(f"{name}: {key} is set in {source} but the service does not document it (typo?)")
 
     apply_own(host.config.get(name, {}), LAYER_ROBOT, robot)
+    if name in host.service_files:
+        apply_own(host.service_env.get(name, {}), LAYER_SERVICE, f"services/{name}.toml")
     apply_own(lines.get(service_prefix(name), {}), LAYER_FILE, "the machine env file")
 
     if spec.require_any and not any(resolved.values.get(key) for key in spec.require_any):

@@ -114,7 +114,7 @@ sudo usermod -aG audio $USER    # only on machines with a microphone or speaker;
 On every machine:
 
 ```bash
-git clone -b feature_ai_claude https://github.com/DanielCalvo-Calvicia/FULL_OBLIVION.git oblivion-deploy
+git clone -b feature_ai_claude_2 https://github.com/DanielCalvo-Calvicia/FULL_OBLIVION.git oblivion-deploy
 cd oblivion-deploy
 ```
 
@@ -395,6 +395,7 @@ oblivion.py restart --host <machine> -s brain        # one service
 ```bash
 oblivion.py update --host <machine>                              # newest code of the configured branches
 oblivion.py update --host <machine> --branch brain=<branch>      # one service on another branch (tags and commits work too)
+oblivion.py compat                                               # do the services fit together on the code each will be deployed from?
 oblivion.py update --host <machine>                              # back to the configured branches
 ```
 

@@ -66,12 +66,12 @@ wheel in its own `vendor/` folder and its requirements file installs it.
 > ```toml
 > [services.brain]
 > git = "D:/Hobbys/IA/OBLIVION/brain_microservice"   # a local clone source instead of GitHub
-> branch = "feature_ai_claude"
+> branch = "feature_ai_claude_2"
 > ```
 >
 > Use route C to run uncommitted code.
 
-Branches today: every repo (including `stepper_microservice` and this one) works on `feature_ai_claude`,
+Branches today: every repo (including `stepper_microservice` and this one) works on `feature_ai_claude_2`,
 which is the default of `launch.py` **and of `services.toml`**. Do not deploy `main` yet: it does not carry the
 vendored `contracts` wheel every service's requirements file points at, so the install fails. Change the default
 in `services.toml` to `main` once the branches are merged.
@@ -137,7 +137,7 @@ Sections 4 to 6 are exactly this route. It is also what you use to debug one ser
 | git | required for routes A and B | same | same |
 | Sound | a working default input and output | ALSA/PortAudio | USB microphone, speaker or I2S DAC |
 | System packages | none | `libportaudio2 portaudio19-dev` (microphone, speaker); `libsndfile1` (speaker); `espeak espeak-data libespeak1` (tts: only the pyttsx3 fallback voice, Piper brings its own) | same as Linux |
-| Voices | Windows SAPI voices (Helena is Spanish, Zira is English) | espeak | espeak |
+| Voices (pyttsx3 fallback only; Piper brings its own) | Windows SAPI voices (Helena is Spanish, Zira is English) | espeak | espeak |
 | Disk / network | the local Whisper model downloads once (hundreds of MB); LLM and OpenAI calls need internet | | |
 
 Linux/Pi system packages are installed by `--system-deps` (uses `sudo`) or by hand:
@@ -184,7 +184,7 @@ sudo usermod -aG audio $USER                                        # microphone
 **Every machine**
 
 ```bash
-git clone -b feature_ai_claude https://github.com/DanielCalvo-Calvicia/FULL_OBLIVION.git oblivion-deploy
+git clone -b feature_ai_claude_2 https://github.com/DanielCalvo-Calvicia/FULL_OBLIVION.git oblivion-deploy
 cd oblivion-deploy
 cp robot.example.toml robot.toml                               # once: the layout, the settings and the keys; then the same file on every machine
 chmod 600 robot.toml                                            # Linux/Pi: it holds keys
@@ -305,6 +305,7 @@ Layers, later ones win:
 | `env file ALL` | `ALL__<VARIABLE>=value` lines of the optional machine-local `secrets/<machine>.env` |
 | `host` | `[services.<name>.env]` in a host file |
 | `robot` | `[env.<service>]` of `robot.toml` |
+| `service file` | `[env]` of `services/<service>.toml`: one file per service, which may also pin its `branch`, `tag` or `commit` (see `README.md`) |
 | `env file` | `<SERVICE>__<VARIABLE>=value` lines of the optional machine-local `secrets/<machine>.env` |
 
 ```powershell
@@ -583,9 +584,11 @@ Use **headphones** (the robot would otherwise hear itself). With every service h
 
 ### 7.2 Automated, real services, mocked input
 
-`contracts/tests/e2e/test_real_pipeline.py` starts all six services for real (own venv, real Whisper, real
-SAPI voice, real playback, real LLM, the stepper in mock mode) and replaces only the **input data**: phrases
-are synthesised with SAPI and streamed as the microphone's capture. It plays audio out loud and makes LLM
+`contracts/tests/e2e/test_real_pipeline.py` starts all six services for real (own venv, real Whisper, the TTS
+service's default engine, real playback, real LLM, the stepper in mock mode) and replaces only the **input data**: phrases
+are synthesised with the Windows SAPI voice (`make_speech.py`) and streamed as the microphone's capture. The TTS under test is
+Piper `en_GB-alan-medium` when its voice file is present in the TTS service's `models/` folder (the `prepare` step fetches it),
+otherwise the pyttsx3 fallback, so SAPI only produces the input. It plays audio out loud and makes LLM
 calls, so it is skipped unless asked for. It needs the LLM keys and URLs from section 5 exported in the
 environment (never in a file) and a working output device.
 
@@ -603,7 +606,7 @@ Run from `D:\Hobbys\IA\OBLIVION`. Without real hardware, the fake-hardware wire 
 ### 7.3 Tests of the deploy tool itself
 
 ```powershell
-brain_microservice\windows\Scripts\python.exe -m pytest deployment\tests -q      # about 100 s, real git repos and processes
+brain_microservice\windows\Scripts\python.exe -m pytest deployment\tests -q      # about 140 s (270 passed on 2026-10-01), real git repos and processes
 ```
 
 ## 8. Several machines

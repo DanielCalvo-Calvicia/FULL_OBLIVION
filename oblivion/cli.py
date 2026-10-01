@@ -12,11 +12,13 @@ from .config import (
     ROBOT_FILE, DeployError, apply_branch_overrides, exposed_services, load_host, load_registry, load_topology,
     validate_host,
 )
+from .compat import ERROR, OK, WARNING, run_compat
 from .manager import Manager, Options
 from .shell import Shell
 
 ROOT = Path(__file__).resolve().parent.parent
 COMMANDS = {
+    "compat": "check the services fit together on the branch, tag or commit each will be deployed from (contracts version, ports, pushed code; --remote also checks the git remotes)",
     "topology": "show the whole robot: every machine, its address, its services, what it exposes; check each can find what it needs",
     "plan": "show what this machine will run: services, branches, and every environment value with its origin",
     "validate": "check the host file, service wiring and required environment values (no network, no changes)",
@@ -39,7 +41,7 @@ def build_parser() -> argparse.ArgumentParser:
     for name, help_text in COMMANDS.items():
         p = sub.add_parser(name, help=help_text, description=help_text)
         p.add_argument(
-            "--host", required=name != "topology", metavar="NAME|FILE",
+            "--host", required=name not in ("topology", "compat"), metavar="NAME|FILE",
             help="a machine of robot.toml, hosts/NAME.toml, or a path to a host file",
         )
         p.add_argument(
@@ -68,6 +70,9 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--no-rollback", action="store_true", help="leave a failed update in place")
         if name == "status":
             p.add_argument("--remote", action="store_true", help="also check the services of [remote]")
+        if name == "compat":
+            p.add_argument("--remote", action="store_true", help="also check that each branch/tag exists on its git remote (needs the network)")
+            p.add_argument("--workspace", metavar="DIR", help="the development workspace with a checkout of every service (default: the folder above this repository)")
         if name == "logs":
             p.add_argument("--lines", "-n", type=int, default=50)
         if name == "env":
@@ -130,9 +135,28 @@ def _topology(args: argparse.Namespace) -> int:
     return 1 if problems else 0
 
 
+def _compat(args: argparse.Namespace) -> int:
+    registry = load_registry(ROOT / "services.toml")
+    workspace = Path(args.workspace).resolve() if args.workspace else ROOT.parent
+    names = args.service
+    unknown = [n for n in names or () if n not in registry.services]
+    if unknown:
+        raise DeployError(f"unknown service(s) {', '.join(unknown)} (known: {', '.join(sorted(registry.services))})")
+    findings = run_compat(registry, Shell(dry_run=False, echo=False), workspace, remote=args.remote, names=names)
+    marks = {OK: "[ok]   ", WARNING: "[warn] ", ERROR: "[FAIL] "}
+    for finding in findings:
+        print(f"{marks[finding.level]}{finding.service:<10} {finding.message}")
+    errors = sum(1 for f in findings if f.level == ERROR)
+    warnings = sum(1 for f in findings if f.level == WARNING)
+    print("\nOK" if not errors else f"\n{errors} error(s)", f"({warnings} warning(s))")
+    return 1 if errors else 0
+
+
 def run(args: argparse.Namespace) -> int:
     if args.command == "topology":
         return _topology(args)
+    if args.command == "compat":
+        return _compat(args)
     manager = _manager(args)
     names: list[str] | None = args.service
     command = args.command

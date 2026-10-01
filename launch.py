@@ -7,7 +7,7 @@
     python launch.py status          state, code version and health of every service
     python launch.py logs [service]  last log lines (default: brain)
 
-Options:  --branch REF   branch/tag/commit for every service (default: feature_ai_claude)
+Options:  --branch REF   branch/tag/commit for every service (default: feature_ai_claude_2)
           --machine NAME which machine of robot.toml this is (only needed when it describes several)
           --stt local    use local Whisper instead of the OpenAI API (no key needed, big install; without a robot.toml)
           --no-update    start what is installed, do not fetch new code
@@ -40,7 +40,7 @@ from oblivion.envfile import is_secret  # noqa: E402
 from oblivion.manager import Manager, Options  # noqa: E402
 from oblivion.shell import Shell  # noqa: E402
 
-DEFAULT_BRANCH = "feature_ai_claude"
+DEFAULT_BRANCH = "feature_ai_claude_2"
 HOST_NAME = "local"
 HOST_FILE = ROOT / "hosts" / f"{HOST_NAME}.toml"
 ROBOT_FILE = ROOT / "robot.toml"  # when it exists it is THE configuration: HOST_FILE and SECRETS_FILE are not used

@@ -90,6 +90,8 @@ class Host:
     topology: Path | None = None  # the robot file (kept under its first name: it is the layout)
     config_all: dict[str, str] = field(default_factory=dict)  # robot.toml [env]: one value for every service that uses it
     config: dict[str, dict[str, str]] = field(default_factory=dict)  # robot.toml [env.<service>] of this machine's services
+    service_env: dict[str, dict[str, str]] = field(default_factory=dict)  # services/<service>.toml [env]: wins over robot.toml
+    service_files: dict[str, Path] = field(default_factory=dict)  # services/<service>.toml of this machine's services
 
     def state_dir(self) -> Path:
         return self.workdir / "state"
@@ -204,6 +206,54 @@ def load_topology(path: Path, registry: "Registry") -> Topology | None:
         raise DeployError(f"{path}: no [machines.<name>] tables (see robot.example.toml)")
     env_all, env = _load_env_tables(path, data, registry)
     return Topology(machines, path.resolve(), env_all, env)
+
+
+SERVICES_DIR = "services"  # services/<service>.toml: one file per service, next to robot.toml
+REF_KEYS = ("branch", "tag", "commit")
+
+
+@dataclass(frozen=True)
+class ServiceFile:
+    """``services/<service>.toml``: which code the service runs (a branch, a tag or a commit) and its own settings."""
+
+    service: str
+    source: Path
+    ref: str | None = None  # the branch, tag or commit; None = follow the registry or host default
+    ref_kind: str | None = None  # "branch", "tag" or "commit"
+    env: dict[str, str] = field(default_factory=dict)  # [env]: this service's variables
+
+
+def load_service_files(base_dir: Path, registry: "Registry") -> dict[str, ServiceFile]:
+    """Every ``services/<service>.toml`` (the ``*.example.toml`` templates are not read). A mistake stops everything."""
+    folder = base_dir / SERVICES_DIR
+    files: dict[str, ServiceFile] = {}
+    if not folder.is_dir():
+        return files
+    for path in sorted(folder.glob("*.toml")):
+        if path.name.endswith(".example.toml"):
+            continue
+        name = path.stem
+        if name not in registry.services:
+            raise DeployError(f"{path}: {name!r} is not a service of the catalogue (known: {', '.join(sorted(registry.services))})")
+        data = _read_toml(path)
+        unknown = sorted(set(data) - {*REF_KEYS, "env"})
+        if unknown:
+            raise DeployError(f"{path}: unknown key(s) {', '.join(unknown)} (allowed: branch, tag or commit, and an [env] table)")
+        given = [key for key in REF_KEYS if key in data]
+        if len(given) > 1:
+            raise DeployError(f"{path}: set only one of branch, tag or commit (found {', '.join(given)})")
+        ref, kind = None, None
+        if given:
+            value = str(data[given[0]]).strip()
+            if not value or any(c.isspace() for c in value):
+                raise DeployError(f"{path}: {given[0]} must be a non-empty name without spaces")
+            ref, kind = value, given[0]
+        env_table = data.get("env", {})
+        if not isinstance(env_table, dict):
+            raise DeployError(f"{path}: [env] must be a table of NAME = value")
+        env = {str(k): _scalar(v, f"{path}: [env] {k}") for k, v in env_table.items()}
+        files[name] = ServiceFile(name, path.resolve(), ref, kind, env)
+    return files
 
 
 def _url_host(address: str) -> str:
@@ -347,6 +397,7 @@ def load_host(host_ref: str, registry: Registry, topology_file: Path | None = No
         env_file_path = conventional if conventional.exists() else None
 
     default_branch = data.get("defaults", {}).get("branch") or None
+    service_files = load_service_files(registry.base_dir, registry)
     raw_services: dict[str, Any] = data.get("services", {})
     if machine is not None:
         stray = [n for n in raw_services if n not in machine.services]
@@ -367,7 +418,9 @@ def load_host(host_ref: str, registry: Registry, topology_file: Path | None = No
         catalogue_port = machine.ports.get(name, spec.port) if machine else spec.port
         instances[name] = ServiceInstance(
             spec=spec,
-            branch=raw.get("branch") or default_branch or spec.branch,
+            # lowest to highest: the registry default, [defaults] branch of a host file, the service's own file
+            # (branch, tag or commit), [services.<name>] branch of a host file (--branch wins over all of them)
+            branch=raw.get("branch") or (service_files[name].ref if name in service_files else None) or default_branch or spec.branch,
             runtime=raw.get("runtime", "native"),
             port=int(raw.get("port", catalogue_port)),
             env={k: str(v) for k, v in raw.get("env", {}).items()},
@@ -403,6 +456,8 @@ def load_host(host_ref: str, registry: Registry, topology_file: Path | None = No
         topology=topology.source if topology and machine else None,
         config_all=dict(topology.env_all) if topology and machine else {},
         config={n: dict(v) for n, v in topology.env.items() if machine and n in machine.services} if topology and machine else {},
+        service_env={n: dict(service_files[n].env) for n in instances if n in service_files and service_files[n].env},
+        service_files={n: service_files[n].source for n in instances if n in service_files},
     )
 
 

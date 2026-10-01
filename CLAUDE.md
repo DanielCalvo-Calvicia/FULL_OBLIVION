@@ -1,15 +1,19 @@
 # CLAUDE.md: deployment
 
-Repo `FULL_OBLIVION`. A stdlib-only Python 3.11+ CLI (`oblivion.py`, package `oblivion/`) that deploys any subset of the services on one machine (Windows, Linux, Raspberry Pi). Read `README.md` (the tool), `docs/USER_GUIDE.md` (the step-by-step operator guide: keep its commands in step with the CLI) and `docs/DEPLOYMENT.md` (the manual: venvs, every env var, start order, health checks) first. Status: new, tested with fake services; Docker, systemd, scheduled tasks and real Pi hardware are untested.
+Repo `FULL_OBLIVION`. A stdlib-only Python 3.11+ CLI (`oblivion.py`, package `oblivion/`) that deploys any subset of the services on one machine (Windows, Linux, Raspberry Pi). Read `README.md` (the tool), `docs/USER_GUIDE.md` (the step-by-step operator guide: keep its commands in step with the CLI) and `docs/DEPLOYMENT.md` (the manual: venvs, every env var, start order, health checks) first. Current state (2026-10-01): branch `feature_ai_claude_2` (tracks `origin/feature_ai_claude_2`, **1 commit ahead, not pushed**: `6606ea6` "Add a per-service prepare step", before it `03e6c45`). Uncommitted: the branch default moved from `feature_ai_claude` to `feature_ai_claude_2` in `services.toml`, `launch.py`, `hosts/machine.example.toml`, `hosts/test-branch.example.toml` and the docs (HEAD still says `feature_ai_claude`), plus doc edits of this pass. Tests: `270 passed` in 154 s (new: `tests/test_service_files.py`, `tests/test_compat.py`). Verified earlier: a real fresh-machine deploy of tts on Python 3.11 and 3.14. Not verified: a real Docker build, Pi speed, the Piper sound by ear.
+
+Status: new, tested with fake services; Docker, systemd, scheduled tasks and real Pi hardware are untested.
 
 ## Layout
 
 - `robot.toml` (git-ignored; `robot.example.toml` is the template) is THE single file of truth: `[machines.*]` (addresses, which services run where) AND `[env]` / `[env.<service>]` (every setting and key). One file on every machine; each service runs on exactly one machine so nothing is per machine. `secrets/<machine>.env` is only an optional machine-local overlay that wins. `--host <machine>` needs no host file; `hosts/<machine>.toml` (`[host] machine = ...`) only overrides.
+- `services/<service>.toml` (git-ignored; `services/<service>.example.toml` are generated templates, committed): per-service file with `branch`/`tag`/`commit` (at most one) and an `[env]` table. Which code runs: registry branch < host `[defaults] branch` < service file < host `[services.x] branch` < `--branch`. Env layer `service file` sits between `robot` and the machine env file (`config.load_service_files`, `envfile.LAYER_SERVICE`). `scripts/env_inventory.py --write` regenerates `robot.example.toml` AND the service templates.
+- `oblivion.py compat [--remote] [--workspace DIR]` (`oblivion/compat.py`): read-only check that the services fit together on the ref each will be deployed from (one bundled contracts version everywhere and equal to the source, requirements install it, `.env.example` ports, checkout branch, unpushed commits; `--remote` checks the refs exist on the git remotes).
 - `services.toml` catalogue of services (git URL, port, requirements per OS, apt packages, `consumes`, required env). Machine-independent. Covers the seven running services (brain, microphone, stt, tts, speaker, ai-agent, stepper); ai-agent has its own `folder`, `entry`, `host_var`/`port_var`.
 - `hosts/<machine>.toml` per-machine layout (`*.example.toml` are committed, real ones are git-ignored). `secrets/*.env` per machine, git-ignored.
 - `oblivion/`: `config` (registry/host, validation), `envfile` (layered env), `gitops` (clone/checkout branch, tag, commit), `installer` (venv + requirements, `-e ../` lines skipped), `runtime` (native processes, Docker), `manager` (deploy, update with rollback), `health`, `autostart`, `cli`.
 - `docker/service.Dockerfile` generic image. `tests/` pytest with real git repos and processes. `wheels/` the committed shared-logging wheel; `scripts/bundle_shared_logging.py` rebuilds it.
-- `services.toml` also carries `prepare` (a script run with the service's python after its `.env` is written, by `Manager.prepare` on deploy, update and rollback; Docker runs it while building via the `PREPARE` build arg; a failure only warns; tts uses it to fetch the Piper voice, which is in neither git nor pip), `min_python` (checked before installing), `require_any` (warning), a `raspberry` requirements key, and the default branch (`feature_ai_claude`, because `main` lacks the vendored contracts wheel).
+- `services.toml` also carries `prepare` (a script run with the service's python after its `.env` is written, by `Manager.prepare` on deploy, update and rollback; Docker runs it while building via the `PREPARE` build arg; a failure only warns; tts uses it to fetch the Piper voice, which is in neither git nor pip), `min_python` (checked before installing), `require_any` (warning), a `raspberry` requirements key, and the default branch (`feature_ai_claude_2`, because `main` lacks the vendored contracts wheel).
 
 ## Rules
 
@@ -30,6 +34,6 @@ Repo `FULL_OBLIVION`. A stdlib-only Python 3.11+ CLI (`oblivion.py`, package `ob
 ## Commands
 
 ```powershell
-& ..\brain_microservice\windows\Scripts\python.exe -m pytest tests -q     # about 100 s
+& ..\brain_microservice\windows\Scripts\python.exe -m pytest tests -q     # about 140 s
 & ..\brain_microservice\windows\Scripts\python.exe oblivion.py plan --host hosts\all-in-one.example.toml
 ```

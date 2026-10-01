@@ -36,7 +36,7 @@ single machine is picked automatically, several need `--machine NAME`) and creat
 file.** Without one, the first run creates `hosts/local.toml` (all seven services on this
 machine, bound to 127.0.0.1) and `secrets/local.env`, asks once for the OpenAI key (or reads `OPENAI_API_KEY`; use
 `--stt local` for local Whisper), copies the LLM provider keys of ai-agent (`GROQ_API_KEY`, `GOOGLE_API_KEY`, ...)
-from your environment into the machine env file, fetches the code of branch `feature_ai_claude` (`--branch REF` to change it), installs,
+from your environment into the machine env file, fetches the code of branch `feature_ai_claude_2` (`--branch REF` to change it), installs,
 starts everything in order and waits until each service is healthy. Later runs update to the newest code of the branch
 (rolling back a service that does not start) and restart; `--no-update` only starts. On Linux/Pi add `--system-deps` the
 first time to apt-install PortAudio/espeak (uses sudo). `--dry-run` prints every command. Brain then opens the voice
@@ -137,7 +137,7 @@ The branch is chosen, from lowest to highest priority, by: the registry default,
 file, `branch =` under a service, and `--branch` on the command line.
 
 ```bash
-python oblivion.py deploy --host mypc --branch feature_ai_claude            # every service on that branch
+python oblivion.py deploy --host mypc --branch feature_ai_claude_2            # every service on that branch
 python oblivion.py update --host mypc --branch brain=feature_x --branch tts=v1.2   # per service; tags and commits work too
 python oblivion.py update --host mypc                                        # back to the configured branches
 ```
@@ -150,6 +150,41 @@ python oblivion.py update --host mypc                                        # b
 * To try a branch without touching the running system, use a second host file with its own `workdir` and ports
   (see `hosts/test-branch.example.toml`).
 * Private repositories work with whatever git credentials the machine already has (SSH key, credential manager).
+
+## One file per service: code version and own settings
+
+Instead of (or besides) `[env.<service>]` of `robot.toml`, each service may have its own file, `services/<service>.toml`
+(`services/<service>.example.toml` are the committed, generated templates; copy one, the real files are git-ignored):
+
+```toml
+# services/tts.toml
+tag = "v1.2.0"            # which code: set at most one of branch, tag or commit (nothing = the default branch of services.toml)
+[env]
+TTS_PIPER_SPEED = 1.1     # this service's own settings and keys
+```
+
+* Which code a service runs, lowest to highest priority: the `branch` of `services.toml`, `[defaults] branch` of a host file,
+  the service's own file (`branch`, `tag` or `commit`), `[services.<name>] branch` of a host file, `--branch` on the command line.
+  Tags are how versions of the whole robot can be pinned later: give every service the same `tag`.
+* `[env]` of the service file wins over `[env.<service>]` of `robot.toml`; only the machine's `secrets/<machine>.env` wins over it
+  (layer `service file` in `oblivion.py env`). A service file of a service that runs on another machine is not applied on this one.
+* A mistake (an unknown service, two of branch/tag/commit, an unknown key) stops the command with a message naming the file.
+* `scripts/env_inventory.py --write` regenerates `robot.example.toml` and every `services/*.example.toml` from the services'
+  `.env.example` files; a test fails when they are out of date.
+
+## Do the services fit together? `compat`
+
+```bash
+python oblivion.py compat                 # offline, against the development workspace next to this repository
+python oblivion.py compat --remote        # also: does each branch/tag exist on its git remote (needs the network)
+python oblivion.py compat --service tts --workspace <dir>
+```
+
+For every service it prints the branch, tag or commit it will be deployed from (and which file chose it) and checks, in the
+workspace: exactly one bundled `contracts` wheel, the same version in every service and equal to the `contracts` source;
+every requirements file installs that wheel; the port of its `.env.example` is the catalogue's; the checkout is on the branch it
+will be deployed from; and **no commit is unpushed** (a deploy takes the code from the remote, not from the working copy).
+Errors exit 1; warnings (a checkout on another branch, unpushed or behind commits) do not.
 
 ## Environment variables
 
@@ -185,6 +220,7 @@ The address, port and URLs of the other services are computed from the layout an
 | `env file ALL` | `ALL__<VARIABLE>=value` lines of the optional machine-local `secrets/<machine>.env` |
 | `host` | `[services.<name>.env]` in a host file |
 | `robot` | `[env.<service>]` of `robot.toml` |
+| `service file` | `[env]` of `services/<service>.toml` (see below) |
 | `env file` | `<SERVICE>__<VARIABLE>=value` lines of the optional machine-local `secrets/<machine>.env` |
 
 ```bash
@@ -259,10 +295,15 @@ convention (ai-agent is the example): `folder` (clone folder name), `entry` (scr
 `port_var` (the env vars that service reads its bind address and port from). In a host file, `git = "<url or
 local path>"` under a service points that one service at another source, e.g. a local repository.
 
+`prepare = ["scripts/x.py"]` is a script run with the service's own Python after its `.env` has been written, by `deploy`, `update` and
+rollback (a Docker build runs it through the `PREPARE` build argument); a failure only warns. tts uses it to download the Piper voice
+(`scripts/fetch_voice.py`, about 60 MB), which is in neither git nor pip. `min_python`, `require_any` (a warning when none of several
+variables is set) and `internal` (variables nobody sets on a deployed machine, never advertised) are the other optional keys.
+
 ## Tests
 
 ```bash
-brain_microservice/windows/Scripts/python.exe -m pytest deployment/tests -q     # ~100 s: real git repos and processes
+brain_microservice/windows/Scripts/python.exe -m pytest deployment/tests -q     # ~140 s (270 passed on 2026-10-01): real git repos and processes
 ```
 
 They cover branch selection, per-service branches, tag/commit deploys, update, automatic rollback of a release that does

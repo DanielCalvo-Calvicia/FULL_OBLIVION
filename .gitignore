@@ -12,3 +12,7 @@ __pycache__/
 
 # The single file of truth of the robot: your addresses, settings and keys (copy robot.example.toml)
 /robot.toml
+
+# Per-service files (what code a service runs and its own settings and keys): yours; the *.example.toml templates are committed
+/services/*.toml
+!/services/*.example.toml
