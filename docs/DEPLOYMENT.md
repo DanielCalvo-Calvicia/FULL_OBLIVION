@@ -439,12 +439,18 @@ first start needs internet and takes a while; later starts are offline.
 
 | Variable | Default | Fill in |
 |---|---|---|
-| `TTS_ENGINE` | `piper` | `piper` (neural British "droid butler" voice) or `pyttsx3` (the old Windows SAPI / espeak voice). If the Piper voice is missing or cannot load, the service logs an error and uses pyttsx3, so Brain's preflight never hangs on a voice download |
+| `TTS_ENGINE` | `piper` | `piper` (neural British "droid butler" voice), `espeak` (a real machine voice: formant synthesis plus a robot effect, no download needed) or `pyttsx3` (the old Windows SAPI / espeak voice). If the Piper voice or espeak is missing or cannot load, the service logs an error and uses pyttsx3, so Brain's preflight never hangs on a voice download |
 | `TTS_PIPER_VOICE` | `en_GB-alan-medium` | Piper voice name. The deploy tool downloads it (`scripts/fetch_voice.py`, about 60 MB, into `models/` of the service, git-ignored) after it writes the `.env`, so a voice set in `robot.toml` is the one fetched. The machine needs internet only for that first download; later deploys find the file and skip it |
 | `TTS_PIPER_MODEL_DIR` | `models` | folder of the voice files, relative to the service folder |
 | `TTS_PIPER_SPEED` | `1.0` | speaking pace multiplier (`1.1` = a little brisker) |
 | `TTS_PITCH_SEMITONES` | `2.0` | pitch lift of the voice, the pace is kept (`0` = as recorded) |
 | `TTS_DROID_EFFECT` | `0.5` | metallic effect strength: `0` off, `0.5` light, `1` obvious, `2` maximum |
+| `TTS_ESPEAK_COMMAND` | empty | espeak engine only: the program to run; empty = `espeak-ng` if installed, else `espeak` (the `espeak` apt package is already installed by `--system-deps`) |
+| `TTS_ESPEAK_VOICE` | `en` | espeak only: voice and variant (`en+m3`, `en+klatt3`, `en+croak` ...) |
+| `TTS_ESPEAK_SPEED` | `150` | espeak only: words per minute, 80-390 |
+| `TTS_ESPEAK_PITCH` | `30` | espeak only: 0-99, lower is deeper |
+| `TTS_ESPEAK_WORD_GAP_MS` | `20` | espeak only: extra silence between words, in milliseconds |
+| `TTS_ROBOT_EFFECT` | `1.0` | espeak only: robot effect strength (ring modulation, sample hold, bit crush): `0` off, `1` default, `3` maximum |
 | `TTS_SPEECH_RATE` | `140` | pyttsx3 only: words per minute |
 | `TTS_VOICE_NAME` | `Zira` | pyttsx3 only: text the voice name must contain; otherwise the first English voice is used. On Windows Zira is English; the default system voice may be Spanish |
 

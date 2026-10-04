@@ -110,9 +110,20 @@ OPENAI_API_KEY = ""
 # Computed by the deploy tool, not set here: SERVICE_HOST SERVICE_PORT
 # Piper droid effect strength: 0 = off, 0.5 = light metal (default), 1 = obvious, 2 = maximum
 #TTS_DROID_EFFECT = 0.5
-# Engine: piper (neural voice, default) or pyttsx3 (the old Windows SAPI / espeak voice). If the Piper voice
-# is missing or cannot load, the service logs an error and uses pyttsx3.
+# Engine: piper (neural human voice, default), espeak (formant synthesizer: a real machine voice) or pyttsx3
+# (the old Windows SAPI / espeak voice). If the Piper voice or espeak is missing or cannot ...
 #TTS_ENGINE = 'piper'
+# espeak only: the program to run. Empty = espeak-ng if installed, else espeak (Debian: sudo apt install
+# espeak-ng)
+#TTS_ESPEAK_COMMAND = ""
+# espeak only: pitch 0-99 (lower is deeper)
+#TTS_ESPEAK_PITCH = 30
+# espeak only: speed in words per minute (80-390)
+#TTS_ESPEAK_SPEED = 150
+# espeak only: voice and variant (en, en+m3, en+klatt3, en+croak ...). `espeak --voices` lists them
+#TTS_ESPEAK_VOICE = 'en'
+# espeak only: extra silence between words in milliseconds (a clipped, mechanical rhythm)
+#TTS_ESPEAK_WORD_GAP_MS = 20
 # Folder holding <voice>.onnx and <voice>.onnx.json (relative to the service folder)
 #TTS_PIPER_MODEL_DIR = 'models'
 # Piper speaking speed multiplier (1.0 = the voice's own pace, 1.1 = a little brisker)
@@ -122,6 +133,9 @@ OPENAI_API_KEY = ""
 #TTS_PIPER_VOICE = 'en_GB-alan-medium'
 # Piper pitch lift in semitones (0 = the voice as recorded). The pace is kept
 #TTS_PITCH_SEMITONES = 2.0
+# espeak only: robot effect strength (ring modulation, sample hold, bit crush): 0 = off, 1 = default, 3 =
+# maximum
+#TTS_ROBOT_EFFECT = 1.0
 # pyttsx3 only: speech speed in words per minute
 #TTS_SPEECH_RATE = 140
 # pyttsx3 only: preferred voice, used if its name contains this text, otherwise the first English voice
