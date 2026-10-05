@@ -21,6 +21,9 @@
 [env]
 # Computed by the deploy tool, not set here: AI_AGENT_BASE_URL MICROPHONE_BASE_URL SERVICE_HOST SERVICE_PORT SPEAKER_BASE_URL STEPPER_BASE_URL STT_BASE_URL TTS_BASE_URL
 #AI_AGENT_FLOWS = 'conversation-flow,motion-flow'
+# The robot's own voice comes back through the microphone. An utterance captured while the robot was speaking,
+# or in the ECHO_GUARD_SECONDS after it (the sound dying away), is dropped before STT: ...
+#ECHO_GUARD_SECONDS = 1.5
 #MICROSERVICE_READY_POLL_INTERVAL_SECONDS = 2
 #PROGRESS_RECEIVED_MESSAGE = 'Message received.'
 #PROGRESS_THINKING_INTERVAL_SECONDS = 2

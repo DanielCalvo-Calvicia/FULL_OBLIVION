@@ -541,6 +541,7 @@ time on real hardware, move a small angle with the arm unloaded and be ready to 
 | `WAKE_FOLLOWUP_SECONDS` | `15` | after the phrase alone (Brain says `WAKE_ACK_MESSAGE`) the next sentence is taken without the phrase, once, within this time; `0` = off |
 | `WAKE_ACK_MESSAGE` | `Yes?` | what Brain says when the phrase comes alone |
 | `WAKE_USE_GATE_STT` | `1` | `0` = no local gate (leave `STT_GATE_ENABLED=0` too): the real STT hears every utterance, which costs tokens each time, and Brain reads the phrase in its text. Use it when the local gate does not hear the phrase well |
+| `ECHO_GUARD_SECONDS` | `1.5` | the robot's own voice comes back through the microphone: an utterance captured while the robot was speaking, or this many seconds after, is dropped before STT so it never answers itself (`0` = off). Raise it if the speaker is loud or the room echoes |
 | `WAKE_ANSWER_SECONDS` | `45` | when an agent asks a question, the next sentence (its answer) is taken without the phrase, once, within this time; `0` = off |
 | `STT_GATE_PATH_PREFIX` | `/gate` | where the gate's routes are in the STT service (a contract, leave it) |
 | `STEPPER_ROTATE_ENDPOINT_TEMPLATE` | `/control/{stepper_id}/rotate` | leave |
