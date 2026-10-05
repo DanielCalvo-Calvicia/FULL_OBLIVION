@@ -23,7 +23,7 @@
 #AI_AGENT_FLOWS = 'conversation-flow,motion-flow'
 # The robot's own voice comes back through the microphone. An utterance captured while the robot was speaking,
 # or in the ECHO_GUARD_SECONDS after it (the sound dying away), is dropped before STT: ...
-#ECHO_GUARD_SECONDS = 1.5
+#ECHO_GUARD_SECONDS = 0.5
 #MICROSERVICE_READY_POLL_INTERVAL_SECONDS = 2
 #PROGRESS_RECEIVED_MESSAGE = 'Message received.'
 #PROGRESS_THINKING_INTERVAL_SECONDS = 2
