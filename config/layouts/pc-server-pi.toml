@@ -1,0 +1,17 @@
+# THREE MACHINES: audio on the PC, the thinking on a server, the motors on the Pi.
+#   pc      the Windows PC with the sound card: microphone and speaker
+#   server  a Linux machine with Python 3.12+: brain, stt, tts and the AI agent
+#   pi      the Raspberry Pi wired to the motors: stepper
+#
+# Use it:  layout = "pc-server-pi"  in config/robot.toml, with the address of each machine under [addresses].
+# Real motors: MOCK_HARDWARE = 0 in config/local/stepper.toml (the default is the mock driver).
+description = "Audio on the PC, brain/stt/tts/ai-agent on a server, stepper on the Pi."
+
+[machines.pc]
+services = ["microphone", "speaker"]
+
+[machines.server]
+services = ["brain", "stt", "tts", "ai-agent"]
+
+[machines.pi]
+services = ["stepper"]

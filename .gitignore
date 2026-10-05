@@ -1,7 +1,14 @@
-# Deployment state and machine-specific configuration never go to git
-hosts/*.toml
-!hosts/*.example.toml
-secrets/*
+# Your robot is yours: which layout it uses, your keys and settings, what is particular to each of your machines.
+# The ready-made layouts (config/layouts/), the default settings of every service (config/services/) and the *.example.toml
+# templates are committed.
+/config/robot.toml
+/config/local/*
+!/config/local/*.example.toml
+!/config/local/README.md
+/config/machines/*.toml
+!/config/machines/*.example.toml
+
+# Deployment state never goes to git
 __pycache__/
 *.pyc
 .pytest_cache/
@@ -9,10 +16,3 @@ __pycache__/
 # Never commit environment files (generated .env, old root .env)
 .env
 *.env
-
-# The single file of truth of the robot: your addresses, settings and keys (copy robot.example.toml)
-/robot.toml
-
-# Per-service files (what code a service runs and its own settings and keys): yours; the *.example.toml templates are committed
-/services/*.toml
-!/services/*.example.toml

@@ -7,8 +7,8 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from oblivion import health
-from oblivion.config import ServiceSpec
+from infrastructure.outbound.health import http_health as health
+from domain.entities.service_spec import ServiceSpec
 
 
 class _Handler(BaseHTTPRequestHandler):

@@ -1,0 +1,18 @@
+# WHAT IS PARTICULAR TO ONE MACHINE. Copy to config/machines/<machine>.toml (git-ignored); <machine> is the machine's name in
+# the layout (pc, pi, server, robot...). Every key is optional: a machine without a file here uses the defaults.
+[host]
+# The Python that builds the virtualenvs, when the machine's default python3 is older than a service needs. ai-agent needs 3.12+,
+# and stock Raspberry Pi OS Bookworm has 3.11. One way to get a newer one without touching the system Python:
+#   python3 -m venv ~/.uvtool && ~/.uvtool/bin/pip install uv && ~/.uvtool/bin/uv python install 3.12
+# which installs ~/.local/bin/python3.12.
+#python = "/home/pi/.local/bin/python3.12"
+
+# Where the clones, virtualenvs, logs and state of this machine go (relative paths are relative to the config folder).
+#workdir = "~/oblivion"
+
+# auto (default: detected), windows, linux or raspberry. Only to force a detection that is wrong.
+#os = "raspberry"
+
+# The address the services listen on. Derived by default: 0.0.0.0 only when a service on another machine calls one of this
+# machine's services, 127.0.0.1 otherwise.
+#bind = "127.0.0.1"

@@ -1,0 +1,18 @@
+# YOUR PRIVATE SETTINGS FOR AI-AGENT. Copy this file to config/local/ai-agent.toml (git-ignored) and fill in the keys you use.
+# Anything else from the matching file in config/services/ can be copied here to override it on this robot.
+# Keys of ai-agent only.
+
+[env]
+ANTHROPIC_API_KEY = ""
+COHERE_API_KEY = ""
+# alias of GITHUB_PAT
+GITHUB_API_KEY = ""
+# GitHub Models token. The phases use GitHub Models by default, but that service is being retired.
+GITHUB_PAT = ""
+GOOGLE_API_KEY = ""
+GROQ_API_KEY = ""
+# Create a free project at https://cloud.langfuse.com and copy its API keys. Only metadata is sent, never
+# prompts or answers.
+LANGFUSE_PUBLIC_KEY = ""
+LANGFUSE_SECRET_KEY = ""
+MISTRAL_API_KEY = ""

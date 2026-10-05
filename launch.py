@@ -7,17 +7,18 @@
     python launch.py status          state, code version and health of every service
     python launch.py logs [service]  last log lines (default: brain)
 
-Options:  --branch REF   branch/tag/commit for every service (default: feature_ai_claude_2)
-          --machine NAME which machine of robot.toml this is (only needed when it describes several)
-          --stt local    use local Whisper instead of the OpenAI API (no key needed, big install; without a robot.toml)
+Options:  --branch REF   branch/tag/commit for every service for this run (default: the catalogue's, feature_ai_claude_2)
+          --machine NAME which machine of the layout this is (only needed when the layout has several)
+          --stt local    use local Whisper instead of the OpenAI API (no key needed, big install; first run only)
           --no-update    start what is installed, do not fetch new code
           --console M    what each service window prints (Windows): stream (default, errors + stream events),
                          errors (errors only) or all. The log files always keep everything.
           --system-deps  Linux/Pi: apt-get install the system packages the services need (uses sudo)
           --dry-run      print every command, change nothing
 
-It only needs Python 3.11+ and git. WITH a robot.toml (the single file of truth: layout, settings and keys) it deploys that
-machine and creates nothing. WITHOUT one it creates hosts/local.toml and secrets/local.env (git-ignored) on the first run.
+It only needs Python 3.11+ and git. WITH a config/robot.toml (which layout, where each machine is) it deploys that machine and
+creates nothing: the settings and keys come from config/. WITHOUT one it creates, on the first run, config/robot.toml (layout
+all-in-one: every service on this machine) and your keys in config/local/ (git-ignored), and never overwrites a file you have.
 For several machines use oblivion.py, one `--host <machine>` per machine (see README.md).
 """
 
@@ -25,8 +26,10 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import json
 import os
 import sys
+import tomllib
 from pathlib import Path
 
 if sys.version_info < (3, 11):
@@ -35,138 +38,152 @@ if sys.version_info < (3, 11):
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
-from oblivion.config import DeployError, apply_branch_overrides, load_host, load_registry, load_topology  # noqa: E402
-from oblivion.envfile import is_secret  # noqa: E402
-from oblivion.manager import Manager, Options  # noqa: E402
-from oblivion.shell import Shell  # noqa: E402
+from application.dtos.options import Options  # noqa: E402
+from application.services.deployment_service import DeploymentService  # noqa: E402
+from composition_root.container import new_deployment_service  # noqa: E402
+from domain.errors import DeployError  # noqa: E402
+from domain.rules.branch_overrides import apply_branch_overrides  # noqa: E402
+from domain.rules.env_names import is_secret  # noqa: E402
+from infrastructure.config.catalogue_loader import load_catalogue  # noqa: E402
+from infrastructure.config.host_loader import load_host  # noqa: E402
+from infrastructure.config.layout_loader import load_layout, write_robot_file  # noqa: E402
+from infrastructure.config.paths import ConfigPaths  # noqa: E402
+from infrastructure.outbound.shell.shell import Shell  # noqa: E402
 
 DEFAULT_BRANCH = "feature_ai_claude_2"
-HOST_NAME = "local"
-HOST_FILE = ROOT / "hosts" / f"{HOST_NAME}.toml"
-ROBOT_FILE = ROOT / "robot.toml"  # when it exists it is THE configuration: HOST_FILE and SECRETS_FILE are not used
-SECRETS_FILE = ROOT / "secrets" / f"{HOST_NAME}.env"
-# Everything the catalogue knows: the services to run, and ai-agent's LLM provider keys (which launch.py copies from the
-# environment into the machine env file). Nothing about them is repeated here.
-REGISTRY = load_registry(ROOT / "services.toml")
-SERVICES = tuple(REGISTRY.services)
-AI_AGENT_KEYS = tuple(key for key in REGISTRY.services["ai-agent"].require_any if is_secret(key))
+GENERATED_LAYOUT = "all-in-one"  # what a first run without config/robot.toml uses: every service on this machine
+PATHS = ConfigPaths()
+# Everything the catalogue knows: ai-agent's LLM provider keys (which launch.py copies from the environment into
+# config/local/ai-agent.toml). Nothing about them is repeated here.
+CATALOGUE = load_catalogue(PATHS)
+SERVICES = tuple(CATALOGUE.services)
+AI_AGENT_KEYS = tuple(key for key in CATALOGUE.services["ai-agent"].require_any if is_secret(key))
+
+
+def _shown(path: Path) -> str:
+    return PATHS.label(path)
 
 
 def robot_machine(args: argparse.Namespace) -> str | None:
-    """The machine of robot.toml this launch is for; None when there is no robot.toml (the generated host file is used)."""
+    """The machine of the layout this launch is for; None when there is no config/robot.toml yet (a first run creates it)."""
     wanted = getattr(args, "machine", None)
-    if not ROBOT_FILE.exists():
+    if not PATHS.robot.exists():
         if wanted:
-            raise DeployError(f"--machine {wanted} needs a robot.toml (copy robot.example.toml to {_shown(ROBOT_FILE)})")
+            raise DeployError(
+                f"--machine {wanted} needs a {_shown(PATHS.robot)}: run  python oblivion.py init --layout <name>  "
+                "(layouts: python oblivion.py layouts)"
+            )
         return None
-    machines = list(load_topology(ROBOT_FILE, REGISTRY).machines)
+    layout = load_layout(PATHS, CATALOGUE)
+    machines = list(layout.machines)
     if wanted:
         if wanted not in machines:
-            raise DeployError(f"machine {wanted!r} is not in robot.toml (has: {', '.join(machines)})")
+            raise DeployError(f"machine {wanted!r} is not in layout {layout.name!r} (has: {', '.join(machines)})")
         return wanted
     if len(machines) == 1:
         return machines[0]
     raise DeployError(
-        f"robot.toml describes {len(machines)} machines ({', '.join(machines)}): say which one this is, "
+        f"layout {layout.name!r} has {len(machines)} machines ({', '.join(machines)}): say which one this is, "
         f"e.g.  python launch.py --machine {machines[0]}"
     )
 
 
-def _shown(path: Path) -> str:
-    try:
-        return str(path.relative_to(ROOT))
-    except ValueError:
-        return str(path)
+# --------------------------------------------------------------------------- the files a first run creates
 
 
-def host_file_text(branch: str, stt_engine: str) -> str:
-    stt_env = '\n[services.stt.env]\nSTT_ENGINE = "local"\n' if stt_engine == "local" else ""
-    services = "\n".join(f"[services.{name}]" for name in SERVICES if name != "stt")
-    return (
-        "# Generated by launch.py. Edit freely: launch.py never overwrites an existing file.\n"
-        "# Every service runs on this machine, bound to 127.0.0.1; Brain reaches the others there. Ports, URLs and the\n"
-        "# public LLM endpoints come from services.toml; keys and settings go in the env file below.\n"
-        f'[host]\nname = "{HOST_NAME}"\nenv_file = "secrets/{HOST_NAME}.env"\n\n[defaults]\nbranch = "{branch}"\n\n'
-        f"{services}\n[services.stt]{stt_env}"
-    )
-
-
-def read_secret_key(path: Path, key: str) -> str:
+def local_env(name: str) -> dict[str, str]:
+    """The ``[env]`` of ``config/local/<name>.toml`` (empty when the file does not exist)."""
+    path = PATHS.local / f"{name}.toml"
     if not path.exists():
-        return ""
-    for line in path.read_text(encoding="utf-8").splitlines():
-        name, _, value = line.partition("=")
-        if name.strip() == key:
-            return value.strip()
-    return ""
+        return {}
+    try:
+        with path.open("rb") as handle:
+            return {str(k): str(v) for k, v in tomllib.load(handle).get("env", {}).items()}
+    except tomllib.TOMLDecodeError as error:
+        raise DeployError(f"{path}: invalid TOML: {error}") from error
 
 
-def ensure_files(branch: str, stt_engine: str, dry_run: bool, interactive: bool) -> list[str]:
-    """Create hosts/local.toml and secrets/local.env when missing. Returns notes for the operator."""
+def has_local_key(service: str, key: str) -> bool:
+    """Whether ``key`` is already set for ``service`` in its own local file or in the shared local/all.toml."""
+    return bool(local_env(service).get(key) or local_env("all").get(key))
+
+
+def write_local_file(name: str, env: dict[str, str]) -> Path:
+    """Create ``config/local/<name>.toml`` readable by this user only. Never called for a file that exists."""
+    path = PATHS.local / f"{name}.toml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["# Written by launch.py. Edit freely: launch.py never overwrites an existing file.", "[env]"]
+    lines += [f"{key} = {json.dumps(value)}" for key, value in env.items()]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    try:
+        path.chmod(0o600)  # it holds API keys: readable by this user only (no effect on Windows)
+    except OSError:
+        pass
+    return path
+
+
+def ensure_files(stt_engine: str, dry_run: bool, interactive: bool) -> list[str]:
+    """Create config/robot.toml and the local key files when missing. Returns notes for the operator."""
     notes: list[str] = []
-    if not HOST_FILE.exists():
-        notes.append(f"created {_shown(HOST_FILE)}")
-        HOST_FILE.parent.mkdir(exist_ok=True)  # also in a dry run: it is a git-ignored config file
-        HOST_FILE.write_text(host_file_text(branch, stt_engine), encoding="utf-8")
-    needs_key = stt_engine != "local" and "STT_ENGINE = \"local\"" not in (
-        HOST_FILE.read_text(encoding="utf-8") if HOST_FILE.exists() else ""
-    )
-    if needs_key and not read_secret_key(SECRETS_FILE, "STT__OPENAI_API_KEY"):
+    if not PATHS.robot.exists():
+        notes.append(f"created {_shown(PATHS.robot)} (layout {GENERATED_LAYOUT!r}: every service on this machine)")
+        write_robot_file(PATHS, GENERATED_LAYOUT, {})  # also in a dry run: it is a git-ignored config file
+
+    stt_file = PATHS.local / "stt.toml"
+    if stt_engine == "local":
+        if not stt_file.exists():  # also in a dry run: no secret in it, and the dry run needs it to see the same settings
+            write_local_file("stt", {"STT_ENGINE": "local"})
+            notes.append(f"created {_shown(stt_file)} (STT_ENGINE = local)")
+    elif not has_local_key("stt", "OPENAI_API_KEY") and local_env("stt").get("STT_ENGINE") != "local":
         key = os.environ.get("OPENAI_API_KEY", "").strip()
         if not key and interactive and not dry_run:
-            key = getpass.getpass("OpenAI API key for speech-to-text (input hidden, stored only in secrets/local.env): ").strip()
+            key = getpass.getpass(f"OpenAI API key for speech-to-text (input hidden, stored only in {_shown(stt_file)}): ").strip()
         if not key and not dry_run:
             raise DeployError(
                 "STT needs an OpenAI API key. Set the OPENAI_API_KEY environment variable and run again, "
-                f"or put STT__OPENAI_API_KEY=... in {_shown(SECRETS_FILE)}, or run with --stt local"
+                f"or put OPENAI_API_KEY = \"...\" under [env] in {_shown(stt_file)}, or run with --stt local"
             )
         if key and not dry_run:
-            SECRETS_FILE.parent.mkdir(exist_ok=True)
-            with SECRETS_FILE.open("a", encoding="utf-8") as handle:
-                handle.write(f"STT__OPENAI_API_KEY={key}\n")
-            try:
-                SECRETS_FILE.chmod(0o600)
-            except OSError:
-                pass
-            notes.append(f"stored the key in {_shown(SECRETS_FILE)} (git-ignored)")
+            if stt_file.exists():
+                raise DeployError(f"{_shown(stt_file)} exists but has no OPENAI_API_KEY: add  OPENAI_API_KEY = \"...\"  under its [env]")
+            write_local_file("stt", {"OPENAI_API_KEY": key})
+            notes.append(f"stored the key in {_shown(stt_file)} (git-ignored)")
+
     if not dry_run:
-        stored = [
-            key for key in AI_AGENT_KEYS
-            if os.environ.get(key, "").strip() and not read_secret_key(SECRETS_FILE, f"AI_AGENT__{key}")
-        ]
-        if stored:
-            SECRETS_FILE.parent.mkdir(exist_ok=True)
-            with SECRETS_FILE.open("a", encoding="utf-8") as handle:
-                for key in stored:
-                    handle.write(f"AI_AGENT__{key}={os.environ[key].strip()}\n")
-            try:
-                SECRETS_FILE.chmod(0o600)
-            except OSError:
-                pass
-            notes.append(f"copied {', '.join(stored)} from the environment into {_shown(SECRETS_FILE)} for ai-agent (git-ignored)")
-        if not any(read_secret_key(SECRETS_FILE, f"AI_AGENT__{key}") for key in AI_AGENT_KEYS):
+        agent_file = PATHS.local / "ai-agent.toml"
+        missing = [key for key in AI_AGENT_KEYS if os.environ.get(key, "").strip() and not has_local_key("ai-agent", key)]
+        if missing and not agent_file.exists():
+            write_local_file("ai-agent", {key: os.environ[key].strip() for key in missing})
+            notes.append(f"copied {', '.join(missing)} from the environment into {_shown(agent_file)} for ai-agent (git-ignored)")
+        elif missing:
+            notes.append(f"warning: {_shown(agent_file)} exists, so {', '.join(missing)} from the environment were not added: put them under its [env]")
+        if not any(has_local_key("ai-agent", key) for key in AI_AGENT_KEYS):
             notes.append(
                 "warning: no LLM provider key for ai-agent: export GROQ_API_KEY / GOOGLE_API_KEY and run again, "
-                f"or add AI_AGENT__GROQ_API_KEY=... to {_shown(SECRETS_FILE)}. Without one ai-agent is not available"
+                f"or add GROQ_API_KEY = \"...\" under [env] in {_shown(agent_file)}. Without one ai-agent is not available"
             )
     return notes
 
 
-def build_manager(args: argparse.Namespace) -> Manager:
-    registry = load_registry(ROOT / "services.toml")
+# --------------------------------------------------------------------------- the commands
+
+
+def build_manager(args: argparse.Namespace) -> DeploymentService:
     machine = robot_machine(args)
-    host = load_host(machine, registry, ROBOT_FILE) if machine else load_host(str(HOST_FILE), registry)
+    if machine is None:
+        raise DeployError("nothing deployed yet: run  python launch.py  first")
+    host = load_host(machine, CATALOGUE, PATHS)
     if args.branch:
         host = apply_branch_overrides(host, [args.branch])
     options = Options(
         system_deps=getattr(args, "system_deps", False),
         health_timeout=getattr(args, "health_timeout", 180.0),
     )
-    return Manager(Shell(dry_run=args.dry_run), host, registry, options)
+    return new_deployment_service(host, CATALOGUE, options, shell=Shell(dry_run=args.dry_run))
 
 
-def print_status(manager: Manager) -> int:
-    rows = manager.status(None, False)
+def print_status(service: DeploymentService) -> int:
+    rows = service.status(None, False)
     width = max(len(r[0]) for r in rows)
     print()
     for name, state, detail in rows:
@@ -176,36 +193,38 @@ def print_status(manager: Manager) -> int:
 
 def cmd_up(args: argparse.Namespace) -> int:
     interactive = sys.stdin.isatty()
-    os.environ["OBLIVION_CONSOLE_FILTER"] = args.console  # read by oblivion/tee.py in each service window
-    machine = robot_machine(args)
-    if machine:
+    os.environ["OBLIVION_CONSOLE_FILTER"] = args.console  # read by the console wrapper (tee.py) in each service window
+    if PATHS.robot.exists():
         if args.stt == "local":
-            raise DeployError('--stt local only shapes the generated host file: with robot.toml set STT_ENGINE = "local" under [env.stt]')
-        print(f"Using {_shown(ROBOT_FILE)}: machine {machine!r} (settings and keys come from that file)")
+            raise DeployError(
+                f'--stt local only shapes the first run: with a {_shown(PATHS.robot)} set STT_ENGINE = "local" under [env] in config/local/stt.toml'
+            )
+        layout = load_layout(PATHS, CATALOGUE)
+        print(f"Using {_shown(PATHS.robot)}: layout {layout.name!r}, machine {robot_machine(args)!r} (settings and keys come from config/)")
     else:
-        for note in ensure_files(args.branch or DEFAULT_BRANCH, args.stt, args.dry_run, interactive):
+        for note in ensure_files(args.stt, args.dry_run, interactive):
             print(note)
-    manager = build_manager(args)
+    service = build_manager(args)
     if not args.dry_run:
-        errors, warnings = manager.validate(None)
+        errors, warnings = service.validate(None)
         for warning in warnings:
             print(f"warning: {warning}")
         if errors:
             raise DeployError("cannot launch:\n  " + "\n  ".join(errors))
 
-    installed = all(manager.state.get(name).get("commit") for name in manager.host.services)
+    installed = all(service.state.get(name).get("commit") for name in service.host.services)
     if installed and args.no_update:
         print("Starting the installed services (--no-update)")
-        failures = manager.start(None)
+        failures = service.start(None)
     elif installed:
         print("Updating to the newest code of the branch and restarting")
-        failures = manager.update(None)  # also starts every service, healthy or rolled back
+        failures = service.update(None)  # also starts every service, healthy or rolled back
     else:
         print("First run: fetching code and installing dependencies (a few minutes)")
-        failures = manager.deploy(None)
+        failures = service.deploy(None)
 
     if not args.dry_run:
-        print_status(manager)
+        print_status(service)
     if failures:
         print("\nFAILED:")
         for failure in failures:
@@ -232,11 +251,11 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 
 def cmd_logs(args: argparse.Namespace) -> int:
-    manager = build_manager(args)
+    service = build_manager(args)
     name = args.service
-    if name not in manager.host.services:
-        raise DeployError(f"unknown service {name!r}; known: {', '.join(manager.host.services)}")
-    path = manager.host.log_file(name)
+    if name not in service.host.services:
+        raise DeployError(f"unknown service {name!r}; known: {', '.join(service.host.services)}")
+    path = service.host.log_file(name)
     print(f"== {name} ({path})")
     if path.exists():
         print("\n".join(path.read_text(errors="replace").splitlines()[-args.lines:]))
@@ -252,7 +271,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command")
     dry = argparse.ArgumentParser(add_help=False)
     dry.add_argument("--dry-run", action="store_true", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
-    dry.add_argument("--machine", metavar="NAME", default=argparse.SUPPRESS, help="the machine of robot.toml this is")
+    dry.add_argument("--machine", metavar="NAME", default=argparse.SUPPRESS, help="the machine of the layout this is")
     up = sub.add_parser("up", parents=[dry], help="deploy or update, start everything (default)")
     up.add_argument("--branch", metavar="REF", help=f"branch, tag or commit for every service (default: {DEFAULT_BRANCH})")
     up.add_argument("--stt", choices=["openai", "local"], default="openai", help="speech-to-text engine")
@@ -287,7 +306,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(normalize(sys.argv[1:] if argv is None else argv))
     args.branch = getattr(args, "branch", None)
     try:
-        if not HOST_FILE.exists() and not ROBOT_FILE.exists() and args.command in ("stop", "status", "logs"):
+        if not PATHS.robot.exists() and args.command in ("stop", "status", "logs"):
             raise DeployError("nothing deployed yet: run  python launch.py  first")
         return {"up": cmd_up, "stop": cmd_stop, "status": cmd_status, "logs": cmd_logs}[args.command](args)
     except DeployError as error:

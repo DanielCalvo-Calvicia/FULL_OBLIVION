@@ -1,0 +1,7 @@
+# YOUR PRIVATE SETTINGS FOR ALL. Copy this file to config/local/all.toml (git-ignored) and fill in the keys you use.
+# Anything else from the matching file in config/services/ can be copied here to override it on this robot.
+# Shared keys: used by ai-agent, stt.
+
+[env]
+# Required when STT_ENGINE=openai
+OPENAI_API_KEY = ""

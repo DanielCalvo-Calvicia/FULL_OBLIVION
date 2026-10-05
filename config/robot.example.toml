@@ -1,0 +1,16 @@
+# THE ONE FILE EVERY ROBOT NEEDS. Copy it to config/robot.toml (git-ignored) and edit it, or let the tool write it:
+#
+#     python oblivion.py init --layout speaker-on-pc --address pc=192.168.1.20 --address pi=192.168.1.30
+#
+# layout      which preset of config/layouts/ says where each service runs (python oblivion.py layouts lists them)
+# [addresses] where each machine of that layout is: an IP or a host name (no http://, no port). A single-machine
+#             layout (all-in-one) needs none.
+#
+# Everything else has its own file:  config/services/<name>.toml  how each service is set up (all.toml: shared settings)
+#                                    config/local/<name>.toml     your own overrides and keys (git-ignored)
+#                                    config/machines/<name>.toml  Python, folders and OS of one machine (optional)
+layout = "all-in-one"
+
+[addresses]
+# pc = "192.168.1.20"
+# pi = "192.168.1.30"

@@ -8,33 +8,35 @@ import urllib.request
 from pathlib import Path
 
 import pytest
-from conftest import FakeRemote, free_port, git, write_registry
+from conftest import FakeRemote, free_port, git, write_catalogue, write_layout, write_machine, write_settings
 
-from oblivion.config import DeployError, apply_branch_overrides, load_host, load_registry
-from oblivion.manager import Manager, Options
-from oblivion.shell import Shell
+from application.dtos.options import Options
+from application.services.deployment_service import DeploymentService
+from composition_root.container import new_deployment_service
+from domain.errors import DeployError
+from domain.rules.branch_overrides import apply_branch_overrides
+from infrastructure.config.catalogue_loader import load_catalogue
+from infrastructure.config.host_loader import load_host
+from infrastructure.outbound.shell.shell import Shell
 
 
 class Platform:
+    """Two fake services (``consumer`` calls ``producer``) on one fake machine ``m``, served from real git repositories."""
+
     def __init__(self, base: Path) -> None:
         self.base = base
         self.ports = {"producer": free_port(), "consumer": free_port()}
         self.remotes = {"producer": FakeRemote(base, "producer"), "consumer": FakeRemote(base, "consumer")}
-        self.registry_path = write_registry(base, self.remotes, self.ports)
+        self.paths = write_catalogue(base, self.remotes, self.ports)
         self.workdir = base / "work"
+        write_layout(self.paths, {"m": ["producer", "consumer"]}, in_layout={"m": "127.0.0.1"})
+        write_machine(self.paths, "m", os="linux", workdir=self.workdir, python=Path(sys.executable))
+        write_settings(self.paths, "local", "producer", '[env]\nT_MARK = "hello"\n')
 
-    def host_file(self, extra: str = "") -> Path:
-        path = self.base / "host.toml"
-        path.write_text(
-            f'[host]\nname = "t"\nos = "linux"\nworkdir = "{self.workdir.as_posix()}"\npython = "{Path(sys.executable).as_posix()}"\n'
-            '[services.producer]\n[services.producer.env]\nT_MARK = "hello"\n[services.consumer]\n' + extra
-        )
-        return path
-
-    def manager(self, overrides: list[str] | None = None, **options) -> Manager:
-        registry = load_registry(self.registry_path)
-        host = apply_branch_overrides(load_host(str(self.host_file()), registry), overrides or [])
-        return Manager(Shell(echo=False), host, registry, Options(health_timeout=15, **options))
+    def manager(self, overrides: list[str] | None = None, **options) -> DeploymentService:
+        catalogue = load_catalogue(self.paths)
+        host = apply_branch_overrides(load_host("m", catalogue, self.paths), overrides or [])
+        return new_deployment_service(host, catalogue, Options(health_timeout=15, **options), shell=Shell(echo=False))
 
     def get(self, service: str, path: str) -> dict:
         with urllib.request.urlopen(f"http://127.0.0.1:{self.ports[service]}{path}", timeout=5) as response:

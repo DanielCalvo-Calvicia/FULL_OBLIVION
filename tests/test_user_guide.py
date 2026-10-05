@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import launch  # noqa: E402
-from oblivion.cli import build_parser  # noqa: E402
+from infrastructure.inbound.cli.cli import build_parser  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 GUIDE = (ROOT / "docs" / "USER_GUIDE.md").read_text(encoding="utf-8")
@@ -79,12 +79,17 @@ def test_the_files_the_guide_links_to_exist(target):
     assert (ROOT / "docs" / target).resolve().exists(), target
 
 
-@pytest.mark.parametrize("example", sorted(set(re.findall(r"hosts[\\/]([a-z-]+)\.example\.toml", GUIDE))))
-def test_the_example_host_files_the_guide_copies_exist(example):
-    assert (ROOT / "hosts" / f"{example}.example.toml").exists()
+@pytest.mark.parametrize("layout", sorted(set(re.findall(r"config[\/]layouts[\/]([a-z0-9-]+)\.toml", GUIDE))))
+def test_the_layouts_the_guide_names_exist(layout):
+    assert (ROOT / "config" / "layouts" / f"{layout}.toml").exists()
+
+
+@pytest.mark.parametrize("name", sorted(set(re.findall(r"layout = \"([a-z0-9-]+)\"", GUIDE))))
+def test_the_layouts_the_guide_picks_in_robot_toml_exist(name):
+    assert (ROOT / "config" / "layouts" / f"{name}.toml").exists()
 
 
 def test_the_guide_names_the_secret_lines_the_tool_reads_and_holds_no_key():
-    for line in ('OPENAI_API_KEY = "', 'GROQ_API_KEY = "', 'GOOGLE_API_KEY = "', "[env]", "[env.ai-agent]"):
-        assert line in GUIDE  # the keys go in robot.toml, named exactly as the file's tables and variables are
-    assert not re.search(r"\b(sk-[A-Za-z0-9]{10,}|AIza[0-9A-Za-z_-]{20,}|gsk_[A-Za-z0-9]{10,})", GUIDE)
+    for line in ('OPENAI_API_KEY = "', 'GROQ_API_KEY = "', "config/local/", "[env]"):
+        assert line in GUIDE  # the keys go in config/local/, named exactly as the files' tables and variables are
+    assert not re.search(r"(sk-[A-Za-z0-9]{10,}|AIza[0-9A-Za-z_-]{20,}|gsk_[A-Za-z0-9]{10,})", GUIDE)

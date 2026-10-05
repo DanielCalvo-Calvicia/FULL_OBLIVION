@@ -1,12 +1,13 @@
-"""Inventory of every environment variable of every deployable service, and the complete robot file built from it.
+"""Inventory of every environment variable of every deployable service, and the settings files built from it.
 
-    brain_microservice/windows/Scripts/python.exe deployment/scripts/env_inventory.py            # print the template
-    brain_microservice/windows/Scripts/python.exe deployment/scripts/env_inventory.py --write    # refresh robot.example.toml and services/*.example.toml
-    brain_microservice/windows/Scripts/python.exe deployment/scripts/env_inventory.py --check    # fail if it is out of date
+    brain_microservice/windows/Scripts/python.exe deployment/scripts/env_inventory.py            # print every generated file
+    brain_microservice/windows/Scripts/python.exe deployment/scripts/env_inventory.py --write    # refresh config/services/*.toml and config/local/*.example.toml
+    brain_microservice/windows/Scripts/python.exe deployment/scripts/env_inventory.py --check    # fail if they are out of date
 
-Needs the development workspace next to this repository (it reads each service's source). The committed
-``robot.example.toml`` is what an operator copies to ``robot.toml``: the machines and every setting and key of every
-service in ONE file; ``tests/test_env_inventory.py`` fails when it no longer lists everything the services read.
+Needs the development workspace next to this repository (it reads each service's source). It writes, for every service,
+``config/services/<name>.toml`` (the project's documented defaults, committed), ``config/services/all.toml`` (what several
+services share) and ``config/local/<name>.example.toml`` (just the secrets, for you to copy to ``config/local/``);
+``tests/test_settings_files.py`` fails when they no longer list everything the services read.
 
 A variable comes from the union of: the service's ``.env.example`` (live and commented-out lines), the variables its code
 reads, the shared-logging variables every service reads, and the few names the code builds dynamically (``EXTRA``).
@@ -26,16 +27,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from oblivion.config import Registry, ServiceSpec, load_registry  # noqa: E402
-from oblivion.envfile import SHARED_LOGGING_VARS, TUNING_VARS, computed_variables, is_secret  # noqa: E402
-from oblivion.envparse import parse_env  # noqa: E402
+from domain.entities.catalogue import Catalogue  # noqa: E402
+from domain.entities.service_spec import ServiceSpec  # noqa: E402
+from domain.rules.dotenv import parse_env  # noqa: E402
+from domain.rules.env_names import SHARED_LOGGING_VARS, TUNING_VARS, computed_variables, is_secret  # noqa: E402
+from infrastructure.config.catalogue_loader import load_catalogue  # noqa: E402
 
 WORKSPACE = ROOT.parent
-TEMPLATE = ROOT / "robot.example.toml"
-SERVICES_TEMPLATES = ROOT / "services"  # services/<service>.example.toml, one per service
+CONFIG = ROOT / "config"
 SKIP_DIRS = {"windows", "vendor", "tests", "testclear", "__pycache__", ".git", "node_modules", "old", "build", "dist"}
 
-# Variables of shared-logging: every service reads them, so ALL__<NAME> sets one for all services at once.
+# Variables of shared-logging: every service reads them, so config/services/all.toml sets one for all services at once.
 SHARED = {
     "LOG_LEVEL": ("INFO", "TRACE, DEBUG, INFO, WARNING, ERROR or CRITICAL"),
     "LOG_FORMAT": ("json", "json (machine-readable) or console (key=value lines for people)"),
@@ -47,7 +49,7 @@ SHARED = {
     "TRACE_EXPORT_HEADERS": ("", "extra request headers, Name=value,Name2=value2 (may carry a credential)"),
     "TRACE_EXPORT_ATTRIBUTES": ("", "extra span attribute names allowed to leave the process, comma separated"),
 }
-assert set(SHARED) == set(SHARED_LOGGING_VARS) - TUNING_VARS, "keep SHARED in step with oblivion/envfile.py"
+assert set(SHARED) == set(SHARED_LOGGING_VARS) - TUNING_VARS, "keep SHARED in step with domain/rules/env_names.py"
 
 # Names the code builds at run time or reads through an alias, which no search of the source can find.
 EXTRA: dict[str, dict[str, tuple[str, str]]] = {
@@ -129,10 +131,10 @@ def code_variables(folder: Path) -> set[str]:
     return names
 
 
-def inventory(registry: Registry, workspace: Path = WORKSPACE) -> dict[str, dict[str, Variable]]:
+def inventory(catalogue: Catalogue, workspace: Path = WORKSPACE) -> dict[str, dict[str, Variable]]:
     """``{service: {variable: Variable}}`` for every deployable service (computed and shared variables excluded)."""
     result: dict[str, dict[str, Variable]] = {}
-    for name, spec in registry.services.items():
+    for name, spec in catalogue.services.items():
         folder = workspace / spec.repo_dir
         variables: dict[str, Variable] = {}
         example = folder / ".env.example"
@@ -145,13 +147,13 @@ def inventory(registry: Registry, workspace: Path = WORKSPACE) -> dict[str, dict
             variable.default = variable.default if variable.default is not None else default
             variable.help = help_text  # the hand-written text: the parsed one may belong to a neighbour
             variable.sources.add("extra")
-        for key, value in spec.env.items():  # services.toml sets it, so that is what a deployed machine gets
+        for key, value in spec.env.items():  # catalogue.toml sets it, so that is what a deployed machine gets
             variable = variables.setdefault(key, Variable(key))
             variable.default = value
-            variable.help = f"{variable.help} (services.toml presets {key}={value})".strip()
-            variable.sources.add("registry")
+            variable.help = f"{variable.help} (catalogue.toml presets {key}={value})".strip()
+            variable.sources.add("catalogue")
         for hidden in SHARED_LOGGING_VARS | computed_variables(spec):
-            variables.pop(hidden, None)  # shared-logging names are in the ALL section; the rest the tool computes
+            variables.pop(hidden, None)  # shared-logging names are in all.toml; the rest the tool computes
         for key in [k for k in variables if _internal(spec, k)]:
             del variables[key]  # wiring constants and development switches: accepted, never advertised
         result[name] = dict(sorted(variables.items()))
@@ -163,27 +165,12 @@ def _internal(spec: ServiceSpec, name: str) -> bool:
 
 
 def shared_by_several(data: dict[str, dict[str, Variable]]) -> dict[str, list[str]]:
-    """``{variable: [services]}`` for variables more than one service uses: they are set once, under ALL."""
+    """``{variable: [services]}`` for variables more than one service uses: they are set once, in all.toml."""
     users: dict[str, list[str]] = {}
     for service, variables in data.items():
         for name in variables:
             users.setdefault(name, []).append(service)
     return {name: services for name, services in sorted(users.items()) if len(services) > 1}
-
-
-MACHINES_EXAMPLE = """\
-[machines.pc]                      # the Windows PC with the sound card
-address = "192.168.1.20"           # an IP or a host name: no http://, no port
-services = ["microphone", "speaker"]
-
-[machines.server]                  # brain and everything that thinks (Python 3.12+ for ai-agent)
-address = "192.168.1.10"
-services = ["brain", "ai-agent", "stt", "tts"]
-
-[machines.pi]                      # the Raspberry Pi wired to the motors (MOCK_HARDWARE = 0 under [env.stepper] for real motors)
-address = "192.168.1.30"
-services = ["stepper"]
-# ports = { stepper = 18005 }      # a machine's ports = {..} only to deviate from services.toml; every caller follows"""
 
 
 def toml_value(text: str) -> str:
@@ -197,148 +184,152 @@ def toml_value(text: str) -> str:
     return json.dumps(text, ensure_ascii=False)
 
 
-def _variable(name: str, default: str, help_text: str, *, secret: bool, note: str = "") -> list[str]:
+def _variable(name: str, default: str, help_text: str, *, secret: bool, note: str = "", where: str = "") -> list[str]:
+    """The comment and the (commented-out) assignment of one setting. A secret is never active in a committed file."""
     text = " ".join(part for part in (note, help_text) if part)
     lines = [f"# {part}" for part in textwrap.wrap(text, width=108)] if text else []
     if secret:
-        return [*lines, f'{name} = ""']  # active and empty: fill in the ones you use
+        lines.append(f"# SECRET: put it in {where}, not in this committed file." if where else "# SECRET.")
+        return [*lines, f'#{name} = ""']
     return [*lines, f"#{name} = {toml_value(default)}"]
 
 
-def render_template(registry: Registry, data: dict[str, dict[str, Variable]]) -> str:
-    out = [
-        "# ROBOT: the single file of truth of the OBLIVION deployment. Copy to robot.toml (git-ignored), fill it in, and put the",
-        "# same file on every machine. It holds the layout AND every setting and key of every service.",
-        "#",
-        "#   [machines.<name>]   where each machine is and which services run there. That is all a machine needs: the port of each",
-        "#                       service is in services.toml, the URL of every service on another machine, each machine's bind",
-        "#                       address and every SERVICE_HOST / SERVICE_PORT / *_BASE_URL are derived (`oblivion.py topology`).",
-        "#   [env]               a variable once, for every service that uses it (a log level, an OpenAI key STT and ai-agent share).",
-        "#   [env.<service>]     one service's own variables. It wins over [env]. Each service runs on exactly one machine, so",
-        "#                       nothing here is per machine.",
-        "#",
-        "# A line that starts with `#NAME = value` is commented out and shows the default: uncomment and edit only what you want to",
-        "# change. A line without `#` is active: the secrets (keys) are listed empty, fill in the ones you use. Values may be strings,",
-        "# numbers or true/false. Only the settings worth changing are listed: the routes between services, service names, tuning",
-        "# knobs and development switches keep their defaults.",
-        "#",
-        "# Keys in this file reach every machine you copy it to. To keep a key off a machine, leave it out of the copy that machine",
-        "# gets and put it in that machine's own secrets/<machine>.env instead (lines NAME=value as SERVICE__NAME=value, or",
-        "# ALL__NAME=value), which wins over this file.",
-        "#",
-        "# Generated by scripts/env_inventory.py from the services' .env.example files and source code. Do not edit the",
-        "# structure by hand: run the script (tests fail when this file no longer lists everything the services read).",
-        "",
-        "# " + "=" * 96,
-        "# THE ROBOT: machines and where the services run (every service on exactly one machine)",
-        "# " + "=" * 96,
-        MACHINES_EXAMPLE,
-        "",
-        "# " + "=" * 96,
-        "# [env]: one value for every service that uses the variable",
-        "# " + "=" * 96,
-        "[env]",
-        "# Shared logging (every service):",
-    ]
-    for variable, (default, help_text) in SHARED.items():
-        out += _variable(variable, default, help_text, secret=is_secret(variable))
-    several = shared_by_several(data)
-    out += ["", "# Used by several services, so set once here instead of once per service:"]
-    for variable, services in several.items():
-        first = data[services[0]][variable]
-        out += _variable(variable, first.default or "", first.help, secret=is_secret(variable), note=f"used by {', '.join(services)}.")
-    for name, spec in registry.services.items():
-        out += ["", "# " + "=" * 96, f"# [env.{name}]   default port {spec.port}", "# " + "=" * 96, f"[env.{name}]"]
-        out += [f"# Computed by the deploy tool, not set here: {' '.join(sorted(computed_variables(spec)))}"]
-        if spec.require_any:
-            out += ["# The agent is available only when at least one provider key below, or OLLAMA_URL, is set."]
-        required = {rule.key: rule.when for rule in spec.require}
-        for variable in data[name].values():
-            if variable.name in several:
-                continue  # listed once, under [env]
-            note = ""
-            if variable.name in required:
-                condition = ", ".join(f"{k}={v}" for k, v in required[variable.name].items())
-                note = f"REQUIRED{' when ' + condition if condition else ''}."
-            help_text = "" if variable.help.lower().startswith("required") else variable.help
-            out += _variable(variable.name, variable.default or "", help_text, secret=is_secret(variable.name), note=note)
-    return "\n".join(out) + "\n"
+def _required(spec: ServiceSpec) -> dict[str, dict[str, str]]:
+    return {rule.key: rule.when for rule in spec.require}
 
 
-def render_service_template(name: str, spec: ServiceSpec, variables: dict[str, Variable], several: dict[str, list[str]]) -> str:
-    """``services/<name>.example.toml``: which code the service runs and its own settings, the easier-to-edit form of
-    ``[env.<name>]`` of robot.toml. Both are generated from the same inventory."""
+def _required_note(required: dict[str, dict[str, str]], name: str) -> str:
+    if name not in required:
+        return ""
+    condition = ", ".join(f"{k}={v}" for k, v in required[name].items())
+    return f"REQUIRED{' when ' + condition if condition else ''}."
+
+
+def render_service_file(name: str, spec: ServiceSpec, variables: dict[str, Variable], several: dict[str, list[str]]) -> str:
+    """``config/services/<name>.toml``: which code the service runs and its own settings, at their defaults."""
     out = [
-        f"# SERVICE FILE of {name} (default port {spec.port}). Copy to services/{name}.toml (git-ignored) to set what this service",
-        "# runs and its own settings in a file of its own. It is optional and more specific than robot.toml: a value here wins",
-        f"# over the same value under [env.{name}] of robot.toml, and only a machine's secrets/<machine>.env wins over this file.",
+        f"# SETTINGS OF {name.upper()} (default port {spec.port}). One file per service: which code it runs and its own settings.",
         "#",
-        "# Which code to deploy: set at most one of branch, tag or commit. Without any, the service follows the branch of",
-        "# services.toml (or of the host file); `oblivion.py deploy|update --branch " + name + "=<ref>` overrides it for one run.",
+        "# This is the project's default and is committed: every line is commented out and shows the default. Uncomment and edit a line",
+        f"# here to change it for everyone; put YOUR values and every key in config/local/{name}.toml (git-ignored, same shape, wins",
+        "# over this file). Settings several services share are in config/services/all.toml.",
+        "#",
+        "# Which code to deploy: set at most one of branch, tag or commit. `oblivion.py deploy|update --branch " + name + "=<ref>`",
+        "# overrides it for one run.",
         f"#branch = {toml_value(spec.branch)}",
         "#tag = 'v1.0.0'",
         "#commit = '0123abc'",
         "#",
-        "# A line that starts with `#NAME = value` is commented out and shows the default: uncomment and edit only what you want to",
-        "# change. A line without `#` is active: the secrets (keys) are listed empty. Generated by scripts/env_inventory.py.",
+        "# How it runs: native (a process of this machine) or docker. A port only to deviate from the catalogue; git only to deploy",
+        "# another repository or a local checkout.",
+        '#runtime = "native"',
+        f"#port = {spec.port}",
+        "#git = 'https://github.com/you/fork.git'",
+        "#",
+        "# Generated by scripts/env_inventory.py from the service's .env.example and source code. Do not edit the structure by hand.",
         "",
         "[env]",
         f"# Computed by the deploy tool, not set here: {' '.join(sorted(computed_variables(spec)))}",
     ]
     if spec.require_any:
         out += ["# The agent is available only when at least one provider key below, or OLLAMA_URL, is set."]
-    required = {rule.key: rule.when for rule in spec.require}
+    required = _required(spec)
+    shared = [v for v in variables if v in several]
+    if shared:
+        out += [f"# Shared with other services, so they are in config/services/all.toml: {', '.join(shared)}"]
     for variable in variables.values():
-        note = ""
         if variable.name in several:
-            note = f"Also used by {', '.join(s for s in several[variable.name] if s != name)}: it can be set once under [env] of robot.toml."
-        if variable.name in required:
-            condition = ", ".join(f"{k}={v}" for k, v in required[variable.name].items())
-            note = f"REQUIRED{' when ' + condition if condition else ''}. {note}".strip()
+            continue
+        note = _required_note(required, variable.name)
         help_text = "" if variable.help.lower().startswith("required") else variable.help
-        out += _variable(variable.name, variable.default or "", help_text, secret=is_secret(variable.name), note=note)
+        out += _variable(variable.name, variable.default or "", help_text, secret=is_secret(variable.name), note=note, where=f"config/local/{name}.toml")
     return "\n".join(out) + "\n"
 
 
-def build_service_templates() -> dict[str, str]:
-    """``{service: text}`` of every ``services/<service>.example.toml``."""
-    registry = load_registry(ROOT / "services.toml")
-    data = inventory(registry)
+def render_all_file(catalogue: Catalogue, data: dict[str, dict[str, Variable]]) -> str:
+    """``config/services/all.toml``: a setting once, for every service that uses it."""
+    out = [
+        "# SETTINGS SHARED BY SEVERAL SERVICES. A value here reaches every service that uses the variable and no other (a log level",
+        "# every service reads, the OpenAI key STT and ai-agent both need). A service's own file wins over this one.",
+        "#",
+        "# This is the project's default and is committed: every line is commented out and shows the default. Put YOUR values and every",
+        "# key in config/local/all.toml (git-ignored, same shape, wins over this file).",
+        "#",
+        "# Generated by scripts/env_inventory.py from the services' .env.example files and source code. Do not edit the structure by hand.",
+        "",
+        "[env]",
+        "# Shared logging (every service):",
+    ]
+    for variable, (default, help_text) in SHARED.items():
+        out += _variable(variable, default, help_text, secret=is_secret(variable), where="config/local/all.toml")
+    out += ["", "# Used by several services, so set once here instead of once per service:"]
+    for variable, services in shared_by_several(data).items():
+        first = data[services[0]][variable]
+        out += _variable(
+            variable, first.default or "", first.help, secret=is_secret(variable),
+            note=f"Used by {', '.join(services)}.", where="config/local/all.toml",
+        )
+    return "\n".join(out) + "\n"
+
+
+def render_local_example(label: str, variables: list[Variable], who: str) -> str:
+    """``config/local/<name>.example.toml``: only the secrets, active and empty, for you to copy and fill in."""
+    out = [
+        f"# YOUR PRIVATE SETTINGS FOR {label.upper()}. Copy this file to config/local/{label}.toml (git-ignored) and fill in the keys you use.",
+        "# Anything else from the matching file in config/services/ can be copied here to override it on this robot.",
+        f"# {who}",
+        "",
+        "[env]",
+    ]
+    for variable in variables:
+        text = " ".join(part for part in (variable.help,) if part)
+        out += [f"# {part}" for part in textwrap.wrap(text, width=108)] if text else []
+        out += [f'{variable.name} = ""']
+    return "\n".join(out) + "\n"
+
+
+def build_files(catalogue: Catalogue | None = None) -> dict[Path, str]:
+    """``{path relative to config/: text}`` of every generated file."""
+    catalogue = catalogue or load_catalogue()
+    data = inventory(catalogue)
     several = shared_by_several(data)
-    return {name: render_service_template(name, spec, data[name], several) for name, spec in registry.services.items()}
-
-
-def build() -> str:
-    registry = load_registry(ROOT / "services.toml")
-    return render_template(registry, inventory(registry))
+    files: dict[Path, str] = {Path("services/all.toml"): render_all_file(catalogue, data)}
+    shared_secrets = [data[services[0]][name] for name, services in several.items() if is_secret(name)]
+    if shared_secrets:
+        users = sorted({s for name, services in several.items() if is_secret(name) for s in services})
+        files[Path("local/all.example.toml")] = render_local_example("all", shared_secrets, f"Shared keys: used by {', '.join(users)}.")
+    for name, spec in catalogue.services.items():
+        files[Path(f"services/{name}.toml")] = render_service_file(name, spec, data[name], several)
+        own_secrets = [v for v in data[name].values() if is_secret(v.name) and v.name not in several]
+        if own_secrets:
+            files[Path(f"local/{name}.example.toml")] = render_local_example(name, own_secrets, f"Keys of {name} only.")
+    return files
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--write", action="store_true", help=f"write {TEMPLATE.relative_to(ROOT)} and services/*.example.toml")
-    parser.add_argument("--check", action="store_true", help="exit 1 when the committed template is out of date")
+    parser.add_argument("--write", action="store_true", help="write config/services/*.toml and config/local/*.example.toml")
+    parser.add_argument("--check", action="store_true", help="exit 1 when a committed file is out of date")
     args = parser.parse_args(argv)
-    text = build()
+    files = build_files()
     if args.write:
-        TEMPLATE.write_text(text, encoding="utf-8", newline="\n")
-        print(f"wrote {TEMPLATE.relative_to(ROOT)} ({text.count(chr(10))} lines)")
-        SERVICES_TEMPLATES.mkdir(exist_ok=True)
-        for name, service_text in build_service_templates().items():
-            (SERVICES_TEMPLATES / f"{name}.example.toml").write_text(service_text, encoding="utf-8", newline="\n")
-            print(f"wrote services/{name}.example.toml ({service_text.count(chr(10))} lines)")
+        for relative, text in files.items():
+            target = CONFIG / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8", newline="\n")
+            print(f"wrote config/{relative.as_posix()} ({text.count(chr(10))} lines)")
         return 0
     if args.check:
-        current = TEMPLATE.read_text(encoding="utf-8") if TEMPLATE.exists() else ""
-        stale = [] if current.replace("\r\n", "\n") == text else [str(TEMPLATE.relative_to(ROOT))]
-        for name, service_text in build_service_templates().items():
-            path = SERVICES_TEMPLATES / f"{name}.example.toml"
-            if not path.exists() or path.read_text(encoding="utf-8").replace("\r\n", "\n") != service_text:
-                stale.append(f"services/{name}.example.toml")
+        stale = [
+            f"config/{relative.as_posix()}" for relative, text in files.items()
+            if not (CONFIG / relative).exists() or (CONFIG / relative).read_text(encoding="utf-8").replace("\r\n", "\n") != text
+        ]
         if stale:
             print(f"out of date: {', '.join(stale)}: run scripts/env_inventory.py --write", file=sys.stderr)
             return 1
         return 0
-    sys.stdout.write(text)
+    for relative, text in files.items():
+        sys.stdout.write(f"\n===== config/{relative.as_posix()} =====\n{text}")
     return 0
 
 

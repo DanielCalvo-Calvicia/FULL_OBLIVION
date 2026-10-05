@@ -8,9 +8,10 @@ import pytest
 from conftest import git
 from test_deploy_flow import Platform
 
-from oblivion import runtime
-from oblivion.config import DeployError, load_registry
-from oblivion.shell import Shell
+from domain.errors import DeployError
+from infrastructure.config.catalogue_loader import load_catalogue
+from infrastructure.outbound.runtime import docker_runtime
+from infrastructure.outbound.shell.shell import Shell
 
 PREPARE_SCRIPT = '''
 import os, sys
@@ -32,8 +33,8 @@ class PreparePlatform(Platform):
         super().__init__(base)
         (self.remotes["producer"].work / "prepare.py").write_text(PREPARE_SCRIPT)
         self.remotes["producer"].release("v1-with-prepare")
-        text = self.registry_path.read_text()
-        self.registry_path.write_text(text.replace("[services.producer]\n", '[services.producer]\nprepare = ["prepare.py"]\n'))
+        text = self.paths.catalogue.read_text()
+        self.paths.catalogue.write_text(text.replace("[services.producer]\n", '[services.producer]\nprepare = ["prepare.py"]\n'))
 
     @property
     def producer_dir(self) -> Path:
@@ -51,8 +52,8 @@ def platform(tmp_path: Path):
 
 
 def test_the_catalogue_reads_prepare(platform):
-    assert load_registry(platform.registry_path).services["producer"].prepare == ("prepare.py",)
-    assert load_registry(platform.registry_path).services["consumer"].prepare == ()
+    assert load_catalogue(platform.paths).services["producer"].prepare == ("prepare.py",)
+    assert load_catalogue(platform.paths).services["consumer"].prepare == ()
 
 
 def test_deploy_runs_prepare_with_the_service_python_after_the_env_file_is_written(platform):
@@ -106,6 +107,6 @@ def test_docker_images_run_prepare_while_building(platform, capsys):
     manager = platform.manager()
     shell = Shell(dry_run=True)
 
-    runtime.docker_build(shell, manager.host, "producer", platform.workdir / "build" / "producer")
+    docker_runtime.build(shell, manager.host, "producer", platform.workdir / "build" / "producer")
 
     assert "--build-arg PREPARE=prepare.py" in capsys.readouterr().out

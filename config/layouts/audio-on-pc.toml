@@ -1,0 +1,13 @@
+# MICROPHONE AND SPEAKER ON THE PC, EVERYTHING ELSE ON THE PI.
+#   pc  the Windows PC with the sound card: it listens and it speaks
+#   pi  the Raspberry Pi: brain, stt, tts, the AI agent and the motors
+#
+# Use it:  layout = "audio-on-pc"  in config/robot.toml, with the address of each machine under [addresses].
+# ai-agent needs Python 3.12 or newer: see config/machines/pi.toml (python = "...").
+description = "Microphone and speaker on the PC; brain, stt, tts, ai-agent and stepper on the Pi."
+
+[machines.pc]
+services = ["microphone", "speaker"]
+
+[machines.pi]
+services = ["brain", "stt", "tts", "ai-agent", "stepper"]

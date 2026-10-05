@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-TEE = Path(__file__).resolve().parent.parent / "oblivion" / "tee.py"
+TEE = Path(__file__).resolve().parent.parent / "infrastructure" / "outbound" / "runtime" / "tee.py"
 
 
 def _run(tmp_path: Path, *command: str) -> tuple[subprocess.CompletedProcess, Path, Path]:

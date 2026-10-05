@@ -3,7 +3,7 @@
 
     brain_microservice/windows/Scripts/python.exe deployment/scripts/bundle_shared_logging.py [--source PATH]
 
-``services.toml`` [libraries.shared-logging] lists ``path`` first (the workspace checkout) and ``wheel_dir``
+``config/catalogue.toml`` [libraries.shared-logging] lists ``path`` first (the workspace checkout) and ``wheel_dir``
 second, so a developer machine keeps using the live source and every other machine uses this wheel.
 ``oblivion validate`` warns when the wheel is older than the checkout. Run this after every version change of
 shared-logging and commit the new wheel. Stdlib only.

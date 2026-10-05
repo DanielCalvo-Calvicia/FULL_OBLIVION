@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from oblivion import gitops
-from oblivion.config import DeployError
-from oblivion.envfile import GENERATED_HEADER
-from oblivion.shell import Shell
+from infrastructure.outbound.git.git_source_control import GitSourceControl
+from domain.errors import DeployError
+from infrastructure.outbound.env.dotenv_files import GENERATED_HEADER
+from infrastructure.outbound.shell.shell import Shell
 
 
 def _git(cwd: Path, *args: str) -> None:
@@ -38,7 +38,7 @@ def clone(tmp_path):
 def test_rewritten_bytecode_is_restored_and_does_not_block_sync(clone):
     repo, remote = clone
     (repo / "__pycache__" / "a.cpython-314.pyc").write_bytes(b"rewritten by python")
-    previous, new = gitops.sync(Shell(), str(remote), repo, "main")
+    previous, new = GitSourceControl(Shell()).sync(str(remote), repo, "main")
     assert previous == new
     assert (repo / "__pycache__" / "a.cpython-314.pyc").read_bytes() == b"old"
 
@@ -48,14 +48,14 @@ def test_a_real_edit_next_to_bytecode_is_still_refused(clone):
     (repo / "__pycache__" / "a.cpython-314.pyc").write_bytes(b"rewritten by python")
     (repo / "main.py").write_text("x = 2\n")
     with pytest.raises(DeployError, match="local modifications"):
-        gitops.sync(Shell(), str(remote), repo, "main")
+        GitSourceControl(Shell()).sync(str(remote), repo, "main")
     assert (repo / "main.py").read_text() == "x = 2\n"
 
 
 def test_the_env_file_this_tool_generated_does_not_block_the_next_update(clone):
     repo, remote = clone
-    (repo / ".env").write_text(GENERATED_HEADER.format(host="pi") + "SERVICE_PORT=8005\nMOCK_HARDWARE=0\n")
-    previous, new = gitops.sync(Shell(), str(remote), repo, "main")
+    (repo / ".env").write_text(GENERATED_HEADER.format(machine="pi") + "SERVICE_PORT=8005\nMOCK_HARDWARE=0\n")
+    previous, new = GitSourceControl(Shell()).sync(str(remote), repo, "main")
     assert previous == new
     assert (repo / ".env").read_text() == "SERVICE_PORT=8005\n"  # back to the committed file; deploy rewrites it next
 
@@ -64,7 +64,7 @@ def test_a_hand_edited_tracked_env_is_still_refused(clone):
     repo, remote = clone
     (repo / ".env").write_text("SERVICE_PORT=9999\n")
     with pytest.raises(DeployError, match="local modifications"):
-        gitops.sync(Shell(), str(remote), repo, "main")
+        GitSourceControl(Shell()).sync(str(remote), repo, "main")
     assert (repo / ".env").read_text() == "SERVICE_PORT=9999\n"
 
 
@@ -72,8 +72,8 @@ def test_a_dry_run_does_not_report_rewritten_bytecode_or_a_generated_env_as_loca
     """A dry run restores nothing, so the dirty check itself must ignore what a real run would restore."""
     repo, remote = clone
     (repo / "__pycache__" / "a.cpython-314.pyc").write_bytes(b"rewritten by python")
-    (repo / ".env").write_text(GENERATED_HEADER.format(host="pc") + "SERVICE_PORT=8005\n")
-    gitops.sync(Shell(dry_run=True, echo=False), str(remote), repo, "main")  # no DeployError
+    (repo / ".env").write_text(GENERATED_HEADER.format(machine="pc") + "SERVICE_PORT=8005\n")
+    GitSourceControl(Shell(dry_run=True, echo=False)).sync(str(remote), repo, "main")  # no DeployError
     assert (repo / "__pycache__" / "a.cpython-314.pyc").read_bytes() == b"rewritten by python"  # and nothing was touched
 
 
@@ -81,4 +81,4 @@ def test_a_dry_run_still_refuses_a_real_edit(clone):
     repo, remote = clone
     (repo / "main.py").write_text("x = 2\n")
     with pytest.raises(DeployError, match="local modifications"):
-        gitops.sync(Shell(dry_run=True, echo=False), str(remote), repo, "main")
+        GitSourceControl(Shell(dry_run=True, echo=False)).sync(str(remote), repo, "main")

@@ -1,0 +1,8 @@
+# ALL IN ONE: every service on one machine (this one). The simplest layout: nothing to wire, nothing leaves the machine.
+#
+# Use it:  layout = "all-in-one"  in config/robot.toml  (no [addresses] needed: the machine is 127.0.0.1)
+description = "Every service on one machine."
+
+[machines.robot]
+address = "127.0.0.1"          # nothing is reachable from other machines
+services = ["brain", "microphone", "stt", "tts", "speaker", "ai-agent", "stepper"]
