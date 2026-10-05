@@ -20,7 +20,23 @@
 
 [env]
 # Computed by the deploy tool, not set here: SERVICE_HOST SERVICE_PORT
+# Subtract the slowly changing constant offset of the signal before measuring volume
+#MICROPHONE_DC_OFFSET_REMOVAL = false
 #MICROPHONE_FALLBACK_SAMPLE_RATE = 16000
+# Raise the thresholds above the quietest volume heard (speech over 3 x it, silence under 2 x it): a noisy
+# room is not speech
+#MICROPHONE_NOISE_FLOOR_TRACKING = true
+# Rate of the audio that is sent on (linear interpolation); 0 = the device's rate. 16000 is what Whisper uses
+#MICROPHONE_RESAMPLE_TO_HZ = 0
 #MICROPHONE_SHOW_METER = true
+# Seconds of silence that end an utterance
+#MICROPHONE_SILENCE_LIMIT_SECONDS = 2.0
+#MICROPHONE_SILENCE_THRESHOLD = 150
+# Speech starts at MICROPHONE_SILENCE_THRESHOLD x this factor (1 = the same volume that counts as silence)
+#MICROPHONE_SPEECH_START_FACTOR = 2.0
 # Comma-separated device-name keywords; empty = OS default input
 #MICROPHONE_TARGET_KEYWORDS = ""
+# Measure a smoothed volume (weight of the newest chunk: MICROPHONE_VOLUME_SMOOTHING_FACTOR, 0 to 1) so one
+# click is not speech
+#MICROPHONE_VOLUME_SMOOTHING = true
+#MICROPHONE_VOLUME_SMOOTHING_FACTOR = 0.1

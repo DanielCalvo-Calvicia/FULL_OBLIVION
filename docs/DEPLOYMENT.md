@@ -425,6 +425,13 @@ knows this and fills the right ones.
 | `MICROPHONE_FALLBACK_SAMPLE_RATE` | `16000` | rarely |
 | `MICROPHONE_TARGET_KEYWORDS` | empty | comma-separated device-name words to pick a specific input (empty = OS default). Use it when the default is wrong |
 | `MICROPHONE_SHOW_METER` | `true` | `false` in a service window or log you do not want a level meter in |
+| `MICROPHONE_SILENCE_THRESHOLD` | `150` | the microphone cuts what it hears into utterances (silence detection used to be STT's): the volume (RMS of 16-bit samples) under which it is silent. The cutting is always on; the rows below are its treatments |
+| `MICROPHONE_SILENCE_LIMIT_SECONDS` | `2.0` | seconds of silence that end an utterance (above 0); lower answers faster, higher waits through pauses |
+| `MICROPHONE_SPEECH_START_FACTOR` | `2.0` | speech starts at the threshold times this factor (at least 1) |
+| `MICROPHONE_DC_OFFSET_REMOVAL` | `false` | subtract the slowly changing constant offset of the signal before measuring volume |
+| `MICROPHONE_VOLUME_SMOOTHING`, `MICROPHONE_VOLUME_SMOOTHING_FACTOR` | `true`, `0.1` | measure a smoothed volume (weight of the newest chunk, above 0 up to 1) so one click is not speech |
+| `MICROPHONE_NOISE_FLOOR_TRACKING` | `true` | raise the thresholds above the quietest volume heard (speech over 3 x it, silence under 2 x it); turn it off in a very quiet room whose floor stays too high |
+| `MICROPHONE_RESAMPLE_TO_HZ` | `0` | rate of the audio sent on (linear interpolation, in the microphone's CPU); `0` = the device's rate, `16000` is what Whisper uses and sends less data |
 
 Has no `.env` support in its own code: the deploy tool starts it through `infrastructure/outbound/runtime/service_runner.py`, which loads the
 generated `.env` first. Started by hand (route C) it reads the process environment only.
