@@ -32,6 +32,9 @@
 #STEPPER_RIGHT_ARM_STEPPER_ID = 'stepper_2'
 #STT_GATE_PATH_PREFIX = '/gate'
 #WAKE_ACK_MESSAGE = 'Yes?'
+# When an agent asks a question, its answer is taken without the phrase (once) within WAKE_ANSWER_SECONDS (0 =
+# off).
+#WAKE_ANSWER_SECONDS = 45
 #WAKE_FOLLOWUP_SECONDS = 15
 #WAKE_NAME_SIMILARITY = 0.75
 #WAKE_PHRASE = 'Oblivion 306'
