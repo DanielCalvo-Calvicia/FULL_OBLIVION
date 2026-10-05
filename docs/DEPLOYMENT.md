@@ -435,6 +435,7 @@ generated `.env` first. Started by hand (route C) it reads the process environme
 |---|---|---|
 | `STT_ENGINE` | `openai` | `openai` = OpenAI Whisper API; any other value (use `local`) = faster-whisper `small.en` on the CPU |
 | `STT_LANGUAGE` | `en` | ISO-639-1 code forced on the transcription (`en`, `es`). Must match the language people speak; `small.en` is English only |
+| `STT_PROMPT` | empty | OpenAI engine only: words the model should spell as written, e.g. `Oblivion 306`, so it stops hearing `Obi-Wan 306`. Empty = no hint. Watch that silence does not come back as those words |
 | `STT_GATE_ENABLED` | `0` | `1` = run the wake-phrase gate in this service: a second, local (free) engine under `/gate/...` that listens to everything. Needs the same on Brain: `WAKE_PHRASE_ENABLED=1`. The `prepare` step downloads its model |
 | `STT_GATE_MODEL` | `tiny.en` | faster-whisper model of the gate; `base.en` is more accurate and slower (on a Pi 4 check the delay before the phrase is heard) |
 | `STT_GATE_PROMPT` | `Oblivion 306` | hint that makes the gate spell the wake phrase right; use the same words as Brain's `WAKE_PHRASE` |

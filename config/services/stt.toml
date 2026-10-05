@@ -33,3 +33,6 @@
 #STT_GATE_PROMPT = 'Oblivion 306'
 # ISO-639-1 code forced on the transcription, e.g. "en" or "es"
 #STT_LANGUAGE = 'en'
+# OpenAI engine only: words the model should spell as written here (e.g. the wake phrase "Oblivion 306"),
+# which stops it writing "Obi-Wan 306". Empty = no hint. Check it does not make silence come ...
+#STT_PROMPT = ""
