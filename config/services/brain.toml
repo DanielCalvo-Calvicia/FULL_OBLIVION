@@ -36,3 +36,6 @@
 #WAKE_NAME_SIMILARITY = 0.75
 #WAKE_PHRASE = 'Oblivion 306'
 #WAKE_PHRASE_ENABLED = 0
+# 1 = the local gate listens (needs STT_GATE_ENABLED=1 in the STT service). 0 = no local engine: the real STT
+# transcribes every utterance (it costs tokens each time) and the phrase is read in its text.
+#WAKE_USE_GATE_STT = 1

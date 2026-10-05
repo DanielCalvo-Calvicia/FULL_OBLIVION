@@ -532,6 +532,7 @@ time on real hardware, move a small angle with the arm unloaded and be ready to 
 | `WAKE_NAME_SIMILARITY` | `0.75` | how like the name a misheard word may be (0 to 1) |
 | `WAKE_FOLLOWUP_SECONDS` | `15` | after the phrase alone (Brain says `WAKE_ACK_MESSAGE`) the next sentence is taken without the phrase, once, within this time; `0` = off |
 | `WAKE_ACK_MESSAGE` | `Yes?` | what Brain says when the phrase comes alone |
+| `WAKE_USE_GATE_STT` | `1` | `0` = no local gate (leave `STT_GATE_ENABLED=0` too): the real STT hears every utterance, which costs tokens each time, and Brain reads the phrase in its text. Use it when the local gate does not hear the phrase well |
 | `STT_GATE_PATH_PREFIX` | `/gate` | where the gate's routes are in the STT service (a contract, leave it) |
 | `STEPPER_ROTATE_ENDPOINT_TEMPLATE` | `/control/{stepper_id}/rotate` | leave |
 | `STEPPER_LEFT_ARM_STEPPER_ID`, `STEPPER_RIGHT_ARM_STEPPER_ID` | `stepper_1`, `stepper_2` | must be ids that exist in the stepper's `STEPPER_CONFIGS` |
