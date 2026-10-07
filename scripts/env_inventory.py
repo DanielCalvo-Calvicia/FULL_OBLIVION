@@ -307,7 +307,7 @@ def build_files(catalogue: Catalogue | None = None) -> dict[Path, str]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
     parser.add_argument("--write", action="store_true", help="write config/services/*.toml and config/local/*.example.toml")
     parser.add_argument("--check", action="store_true", help="exit 1 when a committed file is out of date")
     args = parser.parse_args(argv)

@@ -7,6 +7,7 @@ imported), stdlib only:  ``python tee.py --log FILE --pid-file FILE -- COMMAND..
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
 import re
@@ -63,7 +64,7 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
 
-    if hasattr(sys.stdout, "reconfigure"):
+    if isinstance(sys.stdout, io.TextIOWrapper):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     print(f"=== {args.name}: {' '.join(command)}", flush=True)
     mode = os.environ.get("OBLIVION_CONSOLE_FILTER", "stream").strip().lower()

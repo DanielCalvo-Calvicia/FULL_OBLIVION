@@ -81,5 +81,5 @@ def resolved_refs(paths: ConfigPaths, catalogue: Catalogue) -> dict[str, tuple[s
     refs: dict[str, tuple[str, str]] = {}
     for name, spec in catalogue.services.items():
         chosen = next((f for f in (local.get(name), project.get(name)) if f is not None and f.ref), None)
-        refs[name] = (chosen.ref, f"{chosen.label} ({chosen.ref_kind})") if chosen else (spec.branch, "config/catalogue.toml")
+        refs[name] = (chosen.ref or spec.branch, f"{chosen.label} ({chosen.ref_kind})") if chosen else (spec.branch, "config/catalogue.toml")
     return refs

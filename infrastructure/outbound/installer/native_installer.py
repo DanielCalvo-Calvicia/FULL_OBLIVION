@@ -239,7 +239,7 @@ class NativeInstaller(InstallerPort):
             shell.run([host.python or sys.executable, "-m", "venv", *([] if needs_pip else ["--without-pip"]), venv])
         if needs_pip and not shell.dry_run and shell.run([python, "-m", "pip", "--version"], check=False, capture=True, mutating=False).returncode != 0:
             shell.run([python, "-m", "ensurepip", "--upgrade"])  # a venv created earlier without pip
-        if packages:
+        if packages and requirements is not None:
             filtered = host.state_dir() / f"{name}.requirements.txt"
             if not shell.dry_run:
                 filtered.parent.mkdir(parents=True, exist_ok=True)

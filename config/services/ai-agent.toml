@@ -22,9 +22,6 @@
 # Computed by the deploy tool, not set here: AI_AGENT_HOST AI_AGENT_PORT
 # The agent is available only when at least one provider key below, or OLLAMA_URL, is set.
 # Shared with other services, so they are in config/services/all.toml: OPENAI_API_KEY
-# 1 = skip project manager, safety gate and action execution for a plain reply triage classifies as pure
-# information/conversation (not a task to plan); 0 = always run the full pipeline
-#AI_AGENT_FAST_PATH_ENABLED = 1
 # exchanges (user message + reply) remembered per session
 #AI_AGENT_HISTORY_TURNS = 6
 # tries (the first included) of a failed LLM call, MCP tool or `retry` answer
@@ -80,8 +77,8 @@
 #GROQ_URL = 'https://api.groq.com/openai/v1'
 # empty = https://cloud.langfuse.com (EU). US: https://us.cloud.langfuse.com
 #LANGFUSE_HOST = ""
-# Create a free project at https://cloud.langfuse.com and copy its API keys. Only metadata is sent, never
-# prompts or answers.
+# Create a free project at https://cloud.langfuse.com and copy its API keys. WHAT IS SENT: model, tokens and
+# cost of every call, AND the payload sent and the answer received (the user's text and the ...
 # SECRET: put it in config/local/ai-agent.toml, not in this committed file.
 #LANGFUSE_PUBLIC_KEY = ""
 # SECRET: put it in config/local/ai-agent.toml, not in this committed file.

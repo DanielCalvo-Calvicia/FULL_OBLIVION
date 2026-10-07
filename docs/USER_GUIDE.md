@@ -35,7 +35,7 @@ environment. **Brain is the only coordinator**: it calls the others, and they ne
 | speaker | 8003 | plays the answer | a speaker or headphones |
 | stt | 8001 | speech to text | an OpenAI key, or the local Whisper model |
 | tts | 8002 | text to speech | the Piper voice (downloaded for you on the first deploy, needs internet once) |
-| ai-agent | 7998 | decides the reply (conversation-flow) and the arm movements (motion-flow) | at least one LLM provider key; **Python 3.12+** |
+| ai-agent | 7998 | identifies each message and decides the reply or the arm movements (flows: conversation, special, movement) | at least one LLM provider key; **Python 3.12+** |
 | stepper | 8005 | turns the two arm motors | a Raspberry Pi wired to the motors (or simulation) |
 | brain | 7999 | runs the voice pipeline | the six above reachable |
 

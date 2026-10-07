@@ -11,8 +11,8 @@ GITHUB_API_KEY = ""
 GITHUB_PAT = ""
 GOOGLE_API_KEY = ""
 GROQ_API_KEY = ""
-# Create a free project at https://cloud.langfuse.com and copy its API keys. Only metadata is sent, never
-# prompts or answers.
+# Create a free project at https://cloud.langfuse.com and copy its API keys. WHAT IS SENT: model, tokens and
+# cost of every call, AND the payload sent and the answer received (the user's text and the ...
 LANGFUSE_PUBLIC_KEY = ""
 LANGFUSE_SECRET_KEY = ""
 MISTRAL_API_KEY = ""

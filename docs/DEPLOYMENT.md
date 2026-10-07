@@ -38,14 +38,14 @@ Brain talks to the stepper. There is no authentication anywhere, so keep every p
 | stt | `stt_microservice` | 8001 | `SERVICE_PORT` | speech to text (OpenAI Whisper API or local faster-whisper) | OpenAI key **or** local model |
 | tts | `tts_microservice` | 8002 | `SERVICE_PORT` | text to speech (Piper neural voice, droid effect; pyttsx3 fallback) | the Piper voice file (about 60 MB, fetched at deploy) |
 | speaker | `speaker_microservice` | 8003 | `SERVICE_PORT` | plays audio | a sound output device |
-| ai-agent | `ai-agent` | 7998 | `AI_AGENT_PORT` | decides: two agents ("flows") in one service, conversation-flow writes the reply and motion-flow decides the arm movements | an LLM provider key |
+| ai-agent | `ai-agent` | 7998 | `AI_AGENT_PORT` | decides: identifies every message (triage) and answers it with one of its flows: conversation (a plain reply), special (a task that needs planning) or movement (arm movements) | an LLM provider key |
 | stepper | `stepper_microservice` | 8005 | `SERVICE_PORT` | drives the two arm motors | Raspberry Pi GPIO, or mock mode |
 | brain | `brain_microservice` | 7999 | `SERVICE_PORT` | orchestrates the voice pipeline | the six above |
 
 `aws_microservice` (Go, port 8080) is not part of the running robot and is not covered here.
 
 The voice flow: microphone → Brain → STT → Brain (accumulates what was said) → ai-agent → Brain → TTS →
-Brain → speaker. For every utterance Brain says "Message received." at once, then asks ai-agent's flows one after the other, in the order of `AI_AGENT_FLOWS` (conversation-flow, then motion-flow): conversation-flow writes the reply and motion-flow, only when conversation-flow has ended, decides the arm movements (or asks which detail is missing: Brain speaks that question and the answer goes only to motion-flow). While they work Brain says "Thinking." every 2 seconds; only when all of them have ended it speaks the answer and sends the movements, in order, to the stepper in the background. A stepper failure never silences the spoken reply and stops the rest of that sequence. If ai-agent is unreachable Brain speaks an apology.
+Brain → speaker. For every utterance Brain says "Message received." at once, then makes ONE call to ai-agent, which identifies the message and answers it with one flow: a plain reply (conversation), a task (special) or arm movements (movement; a movement is announced out loud only when `AI_AGENT_SPEAK_MOVEMENTS=1`). When a flow needs a detail it asks, Brain speaks that question and ai-agent sends the next utterance, the answer, straight to the flow that asked. While it works Brain says "Thinking." every 2 seconds; when ai-agent has answered it speaks the answer and sends the movements, in order, to the stepper in the background. A stepper failure never silences the spoken reply and stops the rest of that sequence. If ai-agent is unreachable Brain speaks an apology.
 
 Library: `shared-logging` is imported by every service. `contracts` needs nothing: each service carries the
 wheel in its own `vendor/` folder and its requirements file installs it.
@@ -494,12 +494,11 @@ Speaker has no authentication (the old token option was removed).
 | `AI_AGENT_HOST` / `AI_AGENT_PORT` | `0.0.0.0` / `7998` | bind (the deploy tool sets both from the layout) |
 | `AI_AGENT_RELOAD` | `1` in `.env.example`, **`0` set by the deploy tool** | auto-reload is for development only; never `1` in a deployed service |
 | `AI_AGENT_HISTORY_TURNS` | `6` | exchanges remembered per session |
-| `AI_AGENT_FAST_PATH_ENABLED` | `1` | `1` = plain information/conversation skips planning and answers directly (much faster); `0` = always run the full pipeline |
 | `AI_AGENT_PARALLEL_ACTIONS` | `1` | independent plan actions that may run at once; keep `1` on Groq (token-per-minute limit) |
 | `AI_AGENT_MAX_ATTEMPTS` | `3` | tries of a failed LLM/tool call |
 | `AI_AGENT_MODELS_FILE` | `config/step_models.json` | another model-choice file |
 | `AI_AGENT_MODEL_PHASE_<n>` | unset | override the model of one phase (1 triage, 2 project manager, 3 safety gate, 4 worker, 5 MCP operator, 6 data engineer, 7 draft writer, 8 editor, 9 answer checker, 99 clarification; 20 motion planner, the movement agent's model) |
-| `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST` | empty | optional cost tracking; only metadata is sent |
+| `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST` | empty | optional cost tracking in Langfuse; it receives the model, tokens and cost of every call AND the prompts and answers (the user's text), so use a project you trust |
 
 **Choosing the LLM**: the active profile is the `profile` field of `ai-agent/config/step_models.json`
 (`budget50_groq` today: the planning steps on Groq `openai/gpt-oss-120b`, the small steps on Google lite
@@ -533,8 +532,8 @@ time on real hardware, move a small angle with the arm unloaded and be ready to 
 | `AI_AGENT_BASE_URL` | `http://127.0.0.1:7998` | same |
 | `STEPPER_BASE_URL` | `http://127.0.0.1:8005` | same; optional, without a stepper the arms simply do not move |
 | `*_ENDPOINT` (`MICROPHONE_START/STOP/STREAM`, `STT_SET_STREAM/GET_STREAM/BATCH`, `TTS_SET_STREAM/STREAM`, `SPEAKER_PLAY_STREAM`) | the routes the services expose | leave as they are |
-| `AI_AGENT_FLOWS` | `conversation-flow,motion-flow` | the flows of ai-agent Brain asks, **one after the other, in this order** (each only when the one before has ended). Their routes are `/<flow>/session/...`. Known flows: `conversation-flow`, `motion-flow`; an unknown name stops Brain at startup |
-| `PROGRESS_RECEIVED_MESSAGE`, `PROGRESS_THINKING_MESSAGE`, `PROGRESS_THINKING_INTERVAL_SECONDS` | `Message received.`, `Thinking.`, `2` | what Brain says while the flows work: the first at once when an utterance arrives, the second every N seconds until every flow has ended (the first one after N seconds, so a quick answer stays quiet). An empty text says nothing; an interval of 0 turns `Thinking.` off |
+| `AI_AGENT_SPEAK_MOVEMENTS` | `1` | `1` = when a movement goes ahead, ai-agent words a short spoken line ("Turning my left arm 90 degrees.") and Brain says it; `0` = movements are silent. A refusal or a question about a movement is always said |
+| `PROGRESS_RECEIVED_MESSAGE`, `PROGRESS_THINKING_MESSAGE`, `PROGRESS_THINKING_INTERVAL_SECONDS` | `Message received.`, `Thinking.`, `2` | what Brain says while ai-agent works: the first at once when an utterance arrives, the second every N seconds until ai-agent has answered (the first one after N seconds, so a quick answer stays quiet). An empty text says nothing; an interval of 0 turns `Thinking.` off |
 | `WAKE_PHRASE_ENABLED` | `0` | `1` = Brain answers only an utterance in which the wake phrase is heard (anywhere in the sentence); the audio of those goes to the real STT, the rest is dropped without cost. Needs `STT_GATE_ENABLED=1` on the STT service |
 | `WAKE_PHRASE` | `Oblivion 306` | the phrase: a name and a code; the code may be heard as `306`, `three oh six`, `three hundred and six` |
 | `WAKE_NAME_SIMILARITY` | `0.75` | how like the name a misheard word may be (0 to 1) |

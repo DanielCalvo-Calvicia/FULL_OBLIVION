@@ -24,7 +24,7 @@ WHEELS = ROOT / "wheels"
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE, help=f"shared-logging checkout (default {DEFAULT_SOURCE})")
     args = parser.parse_args(argv)
     if not (args.source / "pyproject.toml").exists():
