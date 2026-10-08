@@ -1,0 +1,8 @@
+# YOUR PRIVATE SETTINGS FOR CAMERA. Copy this file to config/local/camera.toml (git-ignored) and fill in the keys you use.
+# Anything else from the matching file in config/services/ can be copied here to override it on this robot.
+# Keys of camera only.
+
+[env]
+# role:key pairs, roles viewer | operator | admin. Generate real secrets; never commit them.
+CAMERA_API_KEYS = ""
+CAMERA_TLS_KEYFILE = ""

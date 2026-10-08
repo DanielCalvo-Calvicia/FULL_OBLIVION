@@ -29,7 +29,7 @@
 #TRACE_EXPORT_ATTRIBUTES = ""
 
 # Used by several services, so set once here instead of once per service:
-# Used by speaker, stepper. Comma-separated CORS origins
+# Used by speaker, stepper, camera. Comma-separated CORS origins
 #ALLOWED_ORIGINS = '*'
 # Used by stt, ai-agent. Required when STT_ENGINE=openai
 # SECRET: put it in config/local/all.toml, not in this committed file.

@@ -5,4 +5,4 @@ description = "Every service on one machine."
 
 [machines.robot]
 address = "127.0.0.1"          # nothing is reachable from other machines
-services = ["brain", "microphone", "stt", "tts", "speaker", "ai-agent", "stepper"]
+services = ["brain", "microphone", "stt", "tts", "speaker", "ai-agent", "stepper", "camera"]

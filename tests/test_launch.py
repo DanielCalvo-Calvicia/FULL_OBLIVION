@@ -44,7 +44,7 @@ def test_the_generated_robot_file_is_the_all_in_one_layout_and_is_valid(sandbox)
     launch.ensure_files("local", dry_run=True, interactive=False)
     assert 'layout = "all-in-one"' in sandbox.robot.read_text()
     host = load_host("robot", launch.CATALOGUE, sandbox)
-    assert set(host.services) == {"microphone", "stt", "tts", "speaker", "ai-agent", "stepper", "brain"}
+    assert set(host.services) == {"microphone", "stt", "tts", "speaker", "ai-agent", "stepper", "brain", "camera"}
     assert launch.SERVICES == tuple(launch.CATALOGUE.services)  # the list of services is not repeated here either
     assert host.bind == "127.0.0.1" and host.remote == {}  # nothing is exposed to the network by default
 
@@ -207,7 +207,7 @@ def test_a_dry_run_with_a_robot_file_deploys_every_service_it_lists_and_creates_
     assert launch.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "layout 'all-in-one', machine 'robot' (settings and keys come from config/)" in out
-    for service in ("brain", "microphone", "stt", "tts", "speaker", "ai-agent", "stepper"):
+    for service in ("brain", "microphone", "stt", "tts", "speaker", "ai-agent", "stepper", "camera"):
         assert f"{service}: code " in out, service
     assert sorted(p.name for p in sandbox.local.iterdir()) == before  # nothing generated, nothing prompted
 

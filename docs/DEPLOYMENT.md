@@ -30,7 +30,7 @@ go in `config/local/`, which is never committed (section 5.2).
 ## 1. What gets deployed
 
 Seven services plus one library. **Brain is the only coordinator**: services never call each other, and only
-Brain talks to the stepper. There is no authentication anywhere, so keep every port on a trusted network.
+Brain talks to the stepper. There is no authentication anywhere except the camera (API keys, see its section), so keep every port on a trusted network. Nothing calls the camera yet: Brain has no client for it, and the camera calls no service.
 
 | Service | Folder | Port | Env var for the port | What it does | Needs |
 |---|---|---|---|---|---|
@@ -40,6 +40,7 @@ Brain talks to the stepper. There is no authentication anywhere, so keep every p
 | speaker | `speaker_microservice` | 8003 | `SERVICE_PORT` | plays audio | a sound output device |
 | ai-agent | `ai-agent` | 7998 | `AI_AGENT_PORT` | decides: identifies every message (triage) and answers it with one of its flows: conversation (a plain reply), special (a task that needs planning) or movement (arm movements) | an LLM provider key |
 | stepper | `stepper_microservice` | 8005 | `SERVICE_PORT` | drives the two arm motors | Raspberry Pi GPIO, or mock mode |
+| camera | `camera_microservice` | 8006 | `SERVICE_PORT` | owns the camera (Pi CSI or USB) and serves several MJPEG streams, snapshots and frames | a camera, and `CAMERA_API_KEYS` (authentication is on) |
 | brain | `brain_microservice` | 7999 | `SERVICE_PORT` | orchestrates the voice pipeline | the six above |
 
 `aws_microservice` (Go, port 8080) is not part of the running robot and is not covered here.
@@ -225,7 +226,7 @@ Same three steps for every service, changing only the folder and the requirement
 
 | Folder | Requirements file |
 |---|---|
-| `brain_microservice`, `microphone_microservice`, `stt_microservice`, `tts_microservice`, `speaker_microservice`, `stepper_microservice` | `requirements.windows.txt` |
+| `brain_microservice`, `microphone_microservice`, `stt_microservice`, `tts_microservice`, `speaker_microservice`, `stepper_microservice`, `camera_microservice` | `requirements.windows.txt` |
 | `ai-agent` | `requirements.txt` |
 
 Never use a global Python to run a service; always `<service>\windows\Scripts\python.exe`.
@@ -526,6 +527,24 @@ session by itself).
 Real motors are driven only on a Raspberry Pi (`RPi.GPIO`); everywhere else the mock adapter runs. The first
 time on real hardware, move a small angle with the arm unloaded and be ready to cut power.
 
+#### camera
+
+Not part of the voice pipeline: nothing consumes it yet, so it needs no `*_BASE_URL`. It stays alive, not ready, while no camera is usable
+(`/api/v1/ready` answers 503, `/health` 200) and recovers by itself. Its repository must exist before `deploy` can clone it.
+
+| Variable | Default | Fill in |
+|---|---|---|
+| `CAMERA_API_KEYS` | none | **required** while `CAMERA_AUTH_MODE=api_key`: `role:key` pairs, roles `viewer`, `operator`, `admin`. Secret: `config/local/camera.toml` |
+| `CAMERA_AUTH_MODE` | `api_key` | `none` only for a closed bench; the service refuses it on a non-loopback address |
+| `CAMERA_BACKEND` | `auto` | `auto` (libcamera, then V4L2), `libcamera`, `v4l2` or `fake` (software test pattern) |
+| `CAMERA_ID` | `front` | name of the first camera |
+| `CAMERA_STATE_DIR` | `./data` | where profiles and stream definitions are saved |
+| `CAMERA_NEGOTIATE` | `false` | pick the nearest valid stream settings instead of answering 422 |
+| `CAMERA_MAX_*`, `CAMERA_ADAPTIVE`, `CAMERA_*_SECONDS`, `CAMERA_IDLE_POLICY` | see `config/services/camera.toml` | limits, resource thresholds, watchdog timings (conservative for a Pi 4B) |
+
+The CSI camera needs `rpicam-apps` (preinstalled on Raspberry Pi OS); USB cameras need `ffmpeg` and `v4l-utils` (the catalogue's `apt`).
+Full list and behaviour: `camera_microservice/docs/DEPLOYMENT.md`.
+
 #### brain
 
 | Variable | Default | Fill in |
@@ -663,10 +682,10 @@ Five layouts are ready-made (`py -3 oblivion.py layouts` lists them with their m
 | Layout | Machines |
 |---|---|
 | `all-in-one` | `robot`: every service (address 127.0.0.1, nothing to configure) |
-| `speaker-on-pc` | `pc`: speaker. `pi`: microphone, brain, stt, tts, ai-agent, stepper |
-| `audio-on-pc` | `pc`: microphone, speaker. `pi`: brain, stt, tts, ai-agent, stepper |
-| `stepper-on-pi` | `pc`: brain, microphone, stt, tts, speaker, ai-agent. `pi`: stepper |
-| `pc-server-pi` | `pc`: microphone, speaker. `server`: brain, stt, tts, ai-agent. `pi`: stepper |
+| `speaker-on-pc` | `pc`: speaker. `pi`: microphone, brain, stt, tts, ai-agent, stepper, camera |
+| `audio-on-pc` | `pc`: microphone, speaker. `pi`: brain, stt, tts, ai-agent, stepper, camera |
+| `stepper-on-pi` | `pc`: brain, microphone, stt, tts, speaker, ai-agent. `pi`: stepper, camera |
+| `pc-server-pi` | `pc`: microphone, speaker. `server`: brain, stt, tts, ai-agent. `pi`: stepper, camera |
 
 A layout is a small file; to make your own, copy the closest one in `config/layouts/` to a new name:
 

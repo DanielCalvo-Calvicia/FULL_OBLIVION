@@ -220,7 +220,7 @@ def test_the_topology_command_fails_when_a_machine_cannot_find_what_it_needs(con
     assert cli.main(["topology", "--config", str(config.paths.root)]) == 1
     out = capsys.readouterr().out
     assert "ERROR  brain needs 'speaker'" in out and "1 error(s)" in out
-    assert "not placed on any machine: speaker" in out  # ...and it says which one is missing
+    assert "not placed on any machine: camera, speaker" in out  # ...and it says which one is missing
 
 
 def test_the_topology_command_without_a_robot_file_says_how_to_make_one(config, capsys):

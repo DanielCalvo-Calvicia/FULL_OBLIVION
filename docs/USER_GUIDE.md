@@ -37,6 +37,7 @@ environment. **Brain is the only coordinator**: it calls the others, and they ne
 | tts | 8002 | text to speech | the Piper voice (downloaded for you on the first deploy, needs internet once) |
 | ai-agent | 7998 | identifies each message and decides the reply or the arm movements (flows: conversation, special, movement) | at least one LLM provider key; **Python 3.12+** |
 | stepper | 8005 | turns the two arm motors | a Raspberry Pi wired to the motors (or simulation) |
+| camera | 8006 | serves the camera as video streams and snapshots (nothing uses it yet) | a camera on the Pi and an API key in `config/local/camera.toml` |
 | brain | 7999 | runs the voice pipeline | the six above reachable |
 
 ```text
@@ -61,10 +62,10 @@ works out every address, port and URL from it.
 | Layout | Machines | Use it when | Needs |
 |---|---|---|---|
 | `all-in-one` | one machine runs everything | trying it out, developing, or one PC does everything | [section 6](#6-layout-a-everything-on-one-machine) |
-| `speaker-on-pc` | **pc**: speaker. **pi**: everything else | the Pi is the robot's body and your PC only plays the voice | [section 7](#7-layout-b-several-machines) |
-| `audio-on-pc` | **pc**: microphone, speaker. **pi**: the rest | the PC has the sound card | [section 7](#7-layout-b-several-machines) |
-| `stepper-on-pi` | **pc**: everything but the stepper. **pi**: stepper | the Pi only drives the motors | [section 7](#7-layout-b-several-machines) |
-| `pc-server-pi` | **pc**: microphone, speaker. **server**: brain, ai-agent, stt, tts. **pi**: stepper | three machines | [section 7](#7-layout-b-several-machines) |
+| `speaker-on-pc` | **pc**: speaker. **pi**: everything else (camera included) | the Pi is the robot's body and your PC only plays the voice | [section 7](#7-layout-b-several-machines) |
+| `audio-on-pc` | **pc**: microphone, speaker. **pi**: the rest (camera included) | the PC has the sound card | [section 7](#7-layout-b-several-machines) |
+| `stepper-on-pi` | **pc**: everything but the stepper and camera. **pi**: stepper, camera | the Pi only drives the motors | [section 7](#7-layout-b-several-machines) |
+| `pc-server-pi` | **pc**: microphone, speaker. **server**: brain, ai-agent, stt, tts. **pi**: stepper, camera | three machines | [section 7](#7-layout-b-several-machines) |
 
 List them any time, and see which one your robot uses:
 
@@ -540,7 +541,7 @@ py -3 oblivion.py autostart install --host <machine>
 
 Add `--dry-run` to any command to see exactly what it would run without changing anything.
 
-Ports: brain 7999, microphone 8000, stt 8001, tts 8002, speaker 8003, stepper 8005, ai-agent 7998.
+Ports: brain 7999, microphone 8000, stt 8001, tts 8002, speaker 8003, stepper 8005, camera 8006, ai-agent 7998.
 Files: `config/robot.toml` (the layout and addresses), `config/local/` (your keys and settings) and `config/machines/` (all ignored by git),
 logs `<workdir>/logs/`, state `<workdir>/state/`.
 

@@ -10,4 +10,4 @@ description = "Microphone and speaker on the PC; brain, stt, tts, ai-agent and s
 services = ["microphone", "speaker"]
 
 [machines.pi]
-services = ["brain", "stt", "tts", "ai-agent", "stepper"]
+services = ["brain", "stt", "tts", "ai-agent", "stepper", "camera"]

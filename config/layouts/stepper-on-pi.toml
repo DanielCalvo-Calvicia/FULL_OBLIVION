@@ -3,6 +3,7 @@
 #   pi  the Raspberry Pi wired to the motors (a Pi 3 or 4 is plenty: it only drives the stepper)
 #
 # Use it:  layout = "stepper-on-pi"  in config/robot.toml, with the address of each machine under [addresses].
+# The camera (on the Pi, with the stepper) needs CAMERA_API_KEYS in config/local/camera.toml.
 # Real motors: MOCK_HARDWARE = 0 in config/local/stepper.toml on the Pi (the default is the mock driver).
 description = "Everything on the PC except the stepper, which runs on the Pi that drives the motors."
 
@@ -10,4 +11,4 @@ description = "Everything on the PC except the stepper, which runs on the Pi tha
 services = ["brain", "microphone", "stt", "tts", "speaker", "ai-agent"]
 
 [machines.pi]
-services = ["stepper"]
+services = ["stepper", "camera"]

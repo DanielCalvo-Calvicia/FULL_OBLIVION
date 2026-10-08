@@ -14,4 +14,4 @@ services = ["microphone", "speaker"]
 services = ["brain", "stt", "tts", "ai-agent"]
 
 [machines.pi]
-services = ["stepper"]
+services = ["stepper", "camera"]
