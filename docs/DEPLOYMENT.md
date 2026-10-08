@@ -496,6 +496,9 @@ Speaker has no authentication (the old token option was removed).
 | `AI_AGENT_HISTORY_TURNS` | `6` | exchanges remembered per session |
 | `AI_AGENT_PARALLEL_ACTIONS` | `1` | independent plan actions that may run at once; keep `1` on Groq (token-per-minute limit) |
 | `AI_AGENT_MAX_ATTEMPTS` | `3` | tries of a failed LLM/tool call |
+| `AI_AGENT_EXPRESSION` | `1` | the arm gesture that goes with a spoken reply: after a conversation or task reply, ai-agent reads the emotion of the exchange (one more model call, the `emotion_reader` step) and makes random arm movements that Brain starts when the robot starts to speak. `0` = no gestures. A movement the user asked for gets no gesture |
+| `AI_AGENT_SPEECH_CHARS_PER_SECOND` | `14` | how fast the robot talks; the gesture lasts about as long as the reply takes to say at this rate. Raise it if gestures outlast the speech |
+| `AI_AGENT_EXPRESSION_SEED` | empty | a number makes the gestures repeatable (tests); empty = random |
 | `AI_AGENT_MODELS_FILE` | `config/step_models.json` | another model-choice file |
 | `AI_AGENT_MODEL_PHASE_<n>` | unset | override the model of one phase (1 triage, 2 project manager, 3 safety gate, 4 worker, 5 MCP operator, 6 data engineer, 7 draft writer, 8 editor, 9 answer checker, 99 clarification; 20 motion planner, the movement agent's model) |
 | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST` | empty | optional cost tracking in Langfuse; it receives the model, tokens and cost of every call AND the prompts and answers (the user's text), so use a project you trust |

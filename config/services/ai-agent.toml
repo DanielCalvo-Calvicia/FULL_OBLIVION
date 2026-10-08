@@ -22,6 +22,8 @@
 # Computed by the deploy tool, not set here: AI_AGENT_HOST AI_AGENT_PORT
 # The agent is available only when at least one provider key below, or OLLAMA_URL, is set.
 # Shared with other services, so they are in config/services/all.toml: OPENAI_API_KEY
+#AI_AGENT_EXPRESSION = 1
+#AI_AGENT_EXPRESSION_SEED = ""
 # exchanges (user message + reply) remembered per session
 #AI_AGENT_HISTORY_TURNS = 6
 # tries (the first included) of a failed LLM call, MCP tool or `retry` answer
@@ -36,6 +38,7 @@
 #AI_AGENT_MODEL_PHASE_20 = ""
 # model id for phase 3, wins over the models file (safety gate)
 #AI_AGENT_MODEL_PHASE_3 = ""
+#AI_AGENT_MODEL_PHASE_30 = ""
 # model id for phase 4, wins over the models file (worker)
 #AI_AGENT_MODEL_PHASE_4 = ""
 # model id for phase 5, wins over the models file (MCP operator)
@@ -55,6 +58,7 @@
 #AI_AGENT_PARALLEL_ACTIONS = 1
 # 1 = auto-reload for development, 0 for a stable run (catalogue.toml presets AI_AGENT_RELOAD=0)
 #AI_AGENT_RELOAD = 0
+#AI_AGENT_SPEECH_CHARS_PER_SECOND = 14
 # SECRET: put it in config/local/ai-agent.toml, not in this committed file.
 #ANTHROPIC_API_KEY = ""
 # SECRET: put it in config/local/ai-agent.toml, not in this committed file.
